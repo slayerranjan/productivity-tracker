@@ -7,6 +7,7 @@ import trackerRoutes from "./modules/tracker/tracker.routes.js";
 import taskRoutes from "./modules/tasks/tasks.routes.js";
 import reportRoutes from "./modules/reports/reports.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
+import ticketRoutes from "./modules/tickets/tickets.routes.js";
 import { startTrackerScheduler } from "./modules/tracker/tracker.scheduler.js";
 
 const app = express();

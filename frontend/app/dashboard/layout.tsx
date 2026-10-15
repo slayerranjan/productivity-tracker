@@ -24,6 +24,7 @@ const NAV = [
   { href: "/dashboard", label: "Today", ready: true },
   { href: "/dashboard/tasks", label: "Daily Tasks", ready: true },
   { href: "/dashboard/history", label: "My History", ready: true },
+    { href: "/dashboard/tickets", label: "Tickets", ready: true },
   { href: "/dashboard/team", label: "Live Team", ready: true, roles: ["MANAGER", "HR", "ADMIN"] },
   { href: "/dashboard/reports", label: "Reports", ready: true, roles: ["MANAGER", "HR", "ADMIN"] },
   { href: "/dashboard/admin", label: "Admin", ready: false, roles: ["ADMIN", "HR"] },

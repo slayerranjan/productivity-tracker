@@ -5,6 +5,10 @@
 // single GET /api/reports call — no per-row fetching, so switching "Group by"
 // is one request, not one request per person.
 //
+// Attainment is productive hours over EXPECTED hours. Days expected sits next
+// to it on purpose: a percentage without its denominator is the kind of
+// number people argue with.
+//
 // CSV is built in the browser from the rows already on screen. No server
 // endpoint, no temp file, no cleanup job.
 // ===========================================================================
@@ -23,8 +27,10 @@ type PersonRow = {
   employeeCode: string | null;
   role: string;
   designation: string | null;
+  daysExpected: number;
   daysPresent: number;
   daysOnLeave: number;
+  daysAbsent: number;
   lateDays: number;
   lateMinutes: number;
   autoClosedDays: number;
@@ -42,6 +48,7 @@ type PersonRow = {
 type BucketRow = {
   key: string;
   headcount: number;
+  daysExpected: number;
   daysPresent: number;
   daysOnLeave: number;
   lateDays: number;
@@ -59,10 +66,13 @@ type Report = {
   platform: string | null;
   scope: "self" | "team" | "platform";
   target: { productiveHours: number; breakBudgetMinutes: number };
+  holidaysConfigured: boolean;
   totals: {
     headcount: number;
+    daysExpected: number;
     daysPresent: number;
     daysOnLeave: number;
+    daysAbsent: number;
     lateDays: number;
     productiveSeconds: number;
     breakSeconds: number;
@@ -92,6 +102,8 @@ const ALERT_LABELS: Record<string, string> = {
   OVERTIME: "overtime",
   LOW_PRODUCTIVITY: "low productivity",
   NO_LOGIN: "no login",
+  MEETING_PENDING_APPROVAL: "meeting awaiting approval",
+  BIOMETRIC_MISMATCH: "biometric mismatch",
 };
 
 // --- formatting -------------------------------------------------------------
@@ -163,7 +175,6 @@ export default function ReportsPage() {
     void load();
   }, [load]);
 
-  // --- quick ranges ---------------------------------------------------------
   function applyPreset(preset: "week" | "month" | "quarter" | "year") {
     const now = new Date();
     const end = todayIso();
@@ -200,30 +211,35 @@ export default function ReportsPage() {
 
       if (groupBy === "person") {
         header = [
-          "Name", "Employee code", "Role", "Days present", "Days on leave",
-          "Late days", "Late minutes", "Productive", "Break", "Meetings",
-          "Target", "Attainment %", "Task score %", "Alerts", "Auto-closed days",
+          "Name", "Employee code", "Role", "Days expected", "Days present",
+          "Days on leave", "Days absent", "Late days", "Late minutes",
+          "Productive", "Break", "Meetings", "Target", "Attainment %",
+          "Task score %", "Alerts", "Auto-closed days",
         ];
         rows = report.people.map((p) => [
-          p.name, p.employeeCode, p.role, p.daysPresent, p.daysOnLeave,
-          p.lateDays, p.lateMinutes, hm(p.productiveSeconds), hm(p.breakSeconds),
-          hm(p.meetingSeconds), hm(p.targetSeconds), Math.round(p.attainment * 100),
+          p.name, p.employeeCode, p.role, p.daysExpected, p.daysPresent,
+          p.daysOnLeave, p.daysAbsent, p.lateDays, p.lateMinutes,
+          hm(p.productiveSeconds), hm(p.breakSeconds), hm(p.meetingSeconds),
+          hm(p.targetSeconds), Math.round(p.attainment * 100),
           Math.round(p.taskScore * 100), p.alertCount, p.autoClosedDays,
         ]);
       } else {
         header = [
-          "Period", "People", "Days present", "Days on leave", "Late days",
-          "Productive", "Break", "Meetings", "Target", "Attainment %", "Alerts",
+          "Period", "People", "Days expected", "Days present", "Days on leave",
+          "Late days", "Productive", "Break", "Meetings", "Target",
+          "Attainment %", "Alerts",
         ];
         rows = report.buckets.map((b) => [
-          b.key, b.headcount, b.daysPresent, b.daysOnLeave, b.lateDays,
-          hm(b.productiveSeconds), hm(b.breakSeconds), hm(b.meetingSeconds),
-          hm(b.targetSeconds), Math.round(b.attainment * 100), b.alertCount,
+          b.key, b.headcount, b.daysExpected, b.daysPresent, b.daysOnLeave,
+          b.lateDays, hm(b.productiveSeconds), hm(b.breakSeconds),
+          hm(b.meetingSeconds), hm(b.targetSeconds),
+          Math.round(b.attainment * 100), b.alertCount,
         ]);
       }
 
       const csv = [header, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
 
+      // The BOM makes Excel read it as UTF-8 instead of mangling the hour strings.
       const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -237,7 +253,8 @@ export default function ReportsPage() {
   const t = report?.totals;
 
   return (
-    <div className="p-8 space-y-6">      {/* --- header ------------------------------------------------------- */}
+    <div className="p-8 space-y-6">
+      {/* --- header ------------------------------------------------------- */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
@@ -252,7 +269,7 @@ export default function ReportsPage() {
                     ? "Your teams"
                     : `All of ${report.platform ?? "the platform"}`}
                 {" · target "}
-                {report.target.productiveHours}h productive per day
+                {report.target.productiveHours}h productive per scheduled day
               </>
             ) : (
               "Loading scope…"
@@ -346,39 +363,71 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {report && !report.holidaysConfigured && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          No holidays are set up for this period, so public holidays are being counted
+          as expected working days. Add them before treating attainment as final.
+        </div>
+      )}
+
       {/* --- summary tiles ------------------------------------------------ */}
-      {t && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          <Tile label="People" value={String(t.headcount)} sub="with at least one day" />
-          <Tile label="Days present" value={days(t.daysPresent)} sub={`${days(t.daysOnLeave)} on leave`} />
-          <Tile label="Productive" value={hm(t.productiveSeconds)} sub={`of ${hm(t.targetSeconds)} target`} />
+      {t && report && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Tile label="People" value={String(t.headcount)} sub="in this report" />
+          <Tile
+            label="Days expected"
+            value={days(t.daysExpected)}
+            sub={`${days(t.daysOnLeave)} on leave, not counted`}
+          />
+          <Tile
+            label="Days present"
+            value={days(t.daysPresent)}
+            sub={`${days(t.daysAbsent)} absent`}
+          />
           <Tile
             label="Attainment"
             value={pct(t.attainment)}
-            sub="productive ÷ target"
+            sub="productive ÷ expected"
             accent={bandClass(t.attainment)}
           />
-          <Tile label="Late days" value={String(t.lateDays)} sub={`${hm(t.breakSeconds)} on break`} />
-          <Tile label="Alerts" value={String(t.alertCount)} sub={`${pct(t.taskScore)} task score`} />
+          <Tile
+            label="Productive"
+            value={hm(t.productiveSeconds)}
+            sub={`of ${hm(t.targetSeconds)} expected`}
+          />
+          <Tile
+            label="Break"
+            value={hm(t.breakSeconds)}
+            sub={`budget ${report.target.breakBudgetMinutes}m/day`}
+          />
+          <Tile
+            label="Late days"
+            value={String(t.lateDays)}
+            sub={`${hm(t.meetingSeconds)} in meetings`}
+          />
+          <Tile
+            label="Alerts"
+            value={String(t.alertCount)}
+            sub="see breakdown below"
+          />
         </div>
       )}
 
       {/* --- alert breakdown --------------------------------------------- */}
-            {t && report && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Tile label="People" value={String(t.headcount)} sub="with at least one day" />
-          <Tile label="Days present" value={days(t.daysPresent)} sub={`${days(t.daysOnLeave)} on leave`} />
-          <Tile label="Productive" value={hm(t.productiveSeconds)} sub={`of ${hm(t.targetSeconds)} target`} />
-          <Tile
-            label="Attainment"
-            value={pct(t.attainment)}
-            sub="productive ÷ target"
-            accent={bandClass(t.attainment)}
-          />
-          <Tile label="Break" value={hm(t.breakSeconds)} sub={`budget ${report.target.breakBudgetMinutes}m/day`} />
-          <Tile label="Meetings" value={hm(t.meetingSeconds)} sub="approved only" />
-          <Tile label="Late days" value={String(t.lateDays)} sub={`across ${t.headcount} people`} />
-          <Tile label="Alerts" value={String(t.alertCount)} sub="see breakdown below" />
+      {report && report.alertBreakdown.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Alerts raised
+          </span>
+          {report.alertBreakdown.map((a) => (
+            <span
+              key={a.alertType}
+              className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+            >
+              {ALERT_LABELS[a.alertType] ?? a.alertType.toLowerCase().replace(/_/g, " ")}
+              <span className="ml-1.5 text-slate-500">{a.count}</span>
+            </span>
+          ))}
         </div>
       )}
 
@@ -390,8 +439,10 @@ export default function ReportsPage() {
               <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Person</th>
-                  <th className="px-4 py-3 text-right">Days</th>
+                  <th className="px-4 py-3 text-right">Expected</th>
+                  <th className="px-4 py-3 text-right">Present</th>
                   <th className="px-4 py-3 text-right">Leave</th>
+                  <th className="px-4 py-3 text-right">Absent</th>
                   <th className="px-4 py-3 text-right">Late</th>
                   <th className="px-4 py-3 text-right">Productive</th>
                   <th className="px-4 py-3 text-right">Break</th>
@@ -411,8 +462,22 @@ export default function ReportsPage() {
                         {p.designation ? ` · ${p.designation}` : ""}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{p.daysPresent}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">{days(p.daysOnLeave)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {days(p.daysExpected)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {p.daysPresent}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">
+                      {days(p.daysOnLeave)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {p.daysAbsent > 0 ? (
+                        <span className="text-rose-700">{p.daysAbsent}</span>
+                      ) : (
+                        <span className="text-slate-400">0</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {p.lateDays > 0 ? (
                         <span className="text-amber-700">{p.lateDays}</span>
@@ -423,8 +488,12 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-right tabular-nums font-medium text-slate-900">
                       {hm(p.productiveSeconds)}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{hm(p.breakSeconds)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{hm(p.meetingSeconds)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                      {hm(p.breakSeconds)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                      {hm(p.meetingSeconds)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <span
                         className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ${bandClass(p.attainment)}`}
@@ -435,7 +504,9 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-right tabular-nums text-slate-600">
                       {p.tasksTotal > 0 ? pct(p.taskScore) : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">{p.alertCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">
+                      {p.alertCount}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -446,7 +517,8 @@ export default function ReportsPage() {
                 <tr>
                   <th className="px-4 py-3">Period</th>
                   <th className="px-4 py-3 text-right">People</th>
-                  <th className="px-4 py-3 text-right">Days</th>
+                  <th className="px-4 py-3 text-right">Expected</th>
+                  <th className="px-4 py-3 text-right">Present</th>
                   <th className="px-4 py-3 text-right">Leave</th>
                   <th className="px-4 py-3 text-right">Late</th>
                   <th className="px-4 py-3 text-right">Productive</th>
@@ -460,15 +532,30 @@ export default function ReportsPage() {
                 {report?.buckets.map((b) => (
                   <tr key={b.key} className="transition hover:bg-slate-50/70">
                     <td className="px-4 py-3 font-medium text-slate-900">{b.key}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{b.headcount}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{b.daysPresent}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">{days(b.daysOnLeave)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{b.lateDays}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {b.headcount}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {days(b.daysExpected)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {b.daysPresent}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">
+                      {days(b.daysOnLeave)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                      {b.lateDays}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium text-slate-900">
                       {hm(b.productiveSeconds)}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{hm(b.breakSeconds)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{hm(b.meetingSeconds)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                      {hm(b.breakSeconds)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                      {hm(b.meetingSeconds)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <span
                         className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ${bandClass(b.attainment)}`}
@@ -476,7 +563,9 @@ export default function ReportsPage() {
                         {pct(b.attainment)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">{b.alertCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">
+                      {b.alertCount}
+                    </td>
                   </tr>
                 ))}
               </tbody>

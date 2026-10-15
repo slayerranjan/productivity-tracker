@@ -5,17 +5,22 @@
 // breaks and meetings — that is recompute-on-write's job, done at the moment
 // the break or meeting closes.
 //
+// ATTAINMENT: EXPECTED-DAYS MODEL
+// Target accrues per SCHEDULED working day, not per day attended. Absence
+// therefore drags attainment down, which is what anyone reading an
+// attendance report assumes they are looking at. Approved leave removes the
+// day's target entirely, so taking leave you are entitled to is neutral.
+//
 // A report is a snapshot of recorded fact. Time ticking on a session that is
 // still open is NOT added; the response flags hasOpenSessions so the UI can
 // say so. The Live Team page is the real-time view.
 // ===========================================================================
 
 import { prisma } from "../../lib/prisma.js";
+import { platformToday } from "../../lib/dates.js";
 
 export type GroupBy = "person" | "day" | "week" | "month" | "year";
 
-// Same weights as Daily Tasks, so the task score in a report matches the
-// score the employee saw on the day.
 const WEIGHT_VALUES: Record<string, number> = {
   LOW: 1,
   MEDIUM: 2,
@@ -23,13 +28,15 @@ const WEIGHT_VALUES: Record<string, number> = {
   CRITICAL: 5,
 };
 
-// People who never had a tracker day. Compared as plain strings so an unknown
-// status is simply never excluded, instead of failing to compile.
 const EXCLUDED_STATUSES = new Set(["CANDIDATE", "OFFER_SENT", "OFFER_ACCEPTED"]);
 
-// Fallbacks used only if no team config exists yet.
+// Days a holiday row removes from the expected count. An OPTIONAL_HOLIDAY is
+// deliberately not here — it is optional, so the day is still expected.
+const NON_WORKING_DAY_TYPES = new Set(["PUBLIC_HOLIDAY", "WEEKLY_OFF"]);
+
 const DEFAULT_PRODUCTIVE_HOURS = 8;
 const DEFAULT_BREAK_BUDGET_MINUTES = 60;
+const DEFAULT_WORKING_DAYS = [1, 2, 3, 4, 5, 6];
 
 // --- date helpers ----------------------------------------------------------
 // @db.Date columns come back as UTC midnight, so slicing the ISO string is
@@ -51,7 +58,7 @@ function parseDay(value: string): Date {
 function isoWeekKey(date: Date): string {
   const t = new Date(date.getTime());
   const dayOfWeek = t.getUTCDay() || 7; // Sunday 0 -> 7
-  t.setUTCDate(t.getUTCDate() + 4 - dayOfWeek); // jump to this week's Thursday
+  t.setUTCDate(t.getUTCDate() + 4 - dayOfWeek);
   const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
@@ -99,11 +106,8 @@ async function resolveScope(viewerId: string) {
       select: { userId: true },
     });
 
-    // Set, because a manager in two teams would otherwise see shared
-    // members twice — the same duplicate-row class of bug as React keys.
     userIds = Array.from(new Set([viewer.id, ...peers.map((p) => p.userId)]));
   } else {
-    // HR and ADMIN see the whole platform.
     const everyone = await prisma.user.findMany({
       where: { platformId: viewer.platformId },
       select: { id: true, status: true },
@@ -131,78 +135,104 @@ export async function getTeamReport(
   const { viewer, userIds } = await resolveScope(viewerId);
 
   if (userIds.length === 0) {
-    return {
-      range: { from: fromStr, to: toStr },
-      groupBy,
-      target: { productiveHours: DEFAULT_PRODUCTIVE_HOURS, breakBudgetMinutes: DEFAULT_BREAK_BUDGET_MINUTES },
-      totals: emptyTotals(),
-      people: [],
-      buckets: [],
-      alertBreakdown: [],
-      hasOpenSessions: false,
-    };
+    return emptyReport(fromStr, toStr, groupBy);
   }
 
   const dateFilter = { gte: from, lte: to };
 
-  // Five reads, one round trip of latency. Not five sequential awaits.
-  const [users, sessions, leaveDays, tasks, alerts, config] = await Promise.all([
-    prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        employeeCode: true,
-        role: true,
-        designation: true,
-      },
-      orderBy: [{ firstName: "asc" }],
-    }),
+  // Seven reads, one round trip of latency. Not seven sequential awaits.
+  const [users, sessions, leaveDays, tasks, alerts, config, shifts, holidays] =
+    await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          employeeCode: true,
+          role: true,
+          designation: true,
+          shiftId: true,
+          dateOfJoining: true,
+          exitDate: true,
+        },
+        orderBy: [{ firstName: "asc" }],
+      }),
 
-    prisma.workSession.findMany({
-      where: { userId: { in: userIds }, date: dateFilter },
-      select: {
-        userId: true,
-        date: true,
-        status: true,
-        logoutAt: true,
-        productiveSeconds: true,
-        breakSeconds: true,
-        meetingSeconds: true,
-        wasLateLogin: true,
-        lateByMinutes: true,
-        autoClosed: true,
-      },
-    }),
+      prisma.workSession.findMany({
+        where: { userId: { in: userIds }, date: dateFilter },
+        select: {
+          userId: true,
+          date: true,
+          status: true,
+          logoutAt: true,
+          productiveSeconds: true,
+          breakSeconds: true,
+          meetingSeconds: true,
+          wasLateLogin: true,
+          lateByMinutes: true,
+          autoClosed: true,
+        },
+      }),
 
-    prisma.leaveDay.findMany({
-      where: { userId: { in: userIds }, date: dateFilter },
-      select: { userId: true, date: true, isHalfDay: true },
-    }),
+      prisma.leaveDay.findMany({
+        where: { userId: { in: userIds }, date: dateFilter },
+        select: { userId: true, date: true, isHalfDay: true },
+      }),
 
-    prisma.dailyTask.findMany({
-      where: { userId: { in: userIds }, date: dateFilter },
-      select: { userId: true, date: true, weight: true, status: true },
-    }),
+      prisma.dailyTask.findMany({
+        where: { userId: { in: userIds }, date: dateFilter },
+        select: { userId: true, date: true, weight: true, status: true },
+      }),
 
-    prisma.alert.findMany({
-      where: { userId: { in: userIds }, date: dateFilter },
-      select: { userId: true, date: true, alertType: true, severity: true },
-    }),
+      prisma.alert.findMany({
+        where: { userId: { in: userIds }, date: dateFilter },
+        select: { userId: true, date: true, alertType: true, severity: true },
+      }),
 
-    prisma.teamConfig.findFirst({
-      where: { team: { platformId: viewer.platformId } },
-      select: { productiveHours: true, breakBudgetMinutes: true },
-    }),
-  ]);
+      prisma.teamConfig.findFirst({
+        where: { team: { platformId: viewer.platformId } },
+        select: { productiveHours: true, breakBudgetMinutes: true },
+      }),
 
-  const productiveHours = config?.productiveHours ?? DEFAULT_PRODUCTIVE_HOURS;
+      prisma.shift.findMany({
+        where: { platformId: viewer.platformId },
+        select: { id: true, workingDays: true, isDefault: true },
+      }),
+
+      prisma.holiday.findMany({
+        where: { platformId: viewer.platformId, date: dateFilter },
+        select: { date: true, dayType: true },
+      }),
+    ]);
+
+  const productiveHours = Number(config?.productiveHours ?? DEFAULT_PRODUCTIVE_HOURS);
   const breakBudgetMinutes = config?.breakBudgetMinutes ?? DEFAULT_BREAK_BUDGET_MINUTES;
-  const dailyTargetSeconds = Math.round(Number(productiveHours) * 3600);
+  const dailyTargetSeconds = Math.round(productiveHours * 3600);
 
-  // --- per-person accumulator ----------------------------------------------
+  // --- lookups --------------------------------------------------------------
+
+  const shiftDays = new Map<string, number[]>();
+  let defaultDays = DEFAULT_WORKING_DAYS;
+  for (const s of shifts) {
+    shiftDays.set(s.id, s.workingDays);
+    if (s.isDefault) defaultDays = s.workingDays;
+  }
+
+  const holidayDays = new Set<string>();
+  for (const h of holidays) {
+    if (NON_WORKING_DAY_TYPES.has(String(h.dayType))) holidayDays.add(toKey(h.date));
+  }
+
+  // userId|YYYY-MM-DD -> isHalfDay
+  const leaveMap = new Map<string, boolean>();
+  for (const l of leaveDays) {
+    leaveMap.set(`${l.userId}|${toKey(l.date)}`, l.isHalfDay);
+  }
+
+  // --- accumulators ---------------------------------------------------------
+
   const byPerson = new Map<string, PersonRow>();
   for (const u of users) {
     byPerson.set(u.id, {
@@ -212,8 +242,10 @@ export async function getTeamReport(
       employeeCode: u.employeeCode,
       role: String(u.role),
       designation: u.designation ?? null,
+      daysExpected: 0,
       daysPresent: 0,
       daysOnLeave: 0,
+      daysAbsent: 0,
       lateDays: 0,
       lateMinutes: 0,
       autoClosedDays: 0,
@@ -235,16 +267,15 @@ export async function getTeamReport(
     if (!row) {
       row = {
         key,
-        daysPresent: 0,
         peopleSeen: new Set<string>(),
-        headcount: 0,
+        daysExpected: 0,
+        daysPresent: 0,
         daysOnLeave: 0,
         lateDays: 0,
         productiveSeconds: 0,
         breakSeconds: 0,
         meetingSeconds: 0,
         targetSeconds: 0,
-        attainment: 0,
         alertCount: 0,
       };
       byBucket.set(key, row);
@@ -252,54 +283,111 @@ export async function getTeamReport(
     return row;
   }
 
+  // --- expected days --------------------------------------------------------
+  // The range is capped at today in the PLATFORM's timezone. Without this, a
+  // month-to-date report run on the 15th would count sixteen future days as
+  // days the person failed to work.
+
+  const today = platformToday(viewer.platform?.timezone ?? "Asia/Kolkata");
+  const lastDay = to.getTime() > today.getTime() ? today : to;
+
+  const attendedDays = new Set<string>();
+  for (const s of sessions) attendedDays.add(`${s.userId}|${toKey(s.date)}`);
+
+  for (const u of users) {
+    const person = byPerson.get(u.id)!;
+    const days = (u.shiftId ? shiftDays.get(u.shiftId) : undefined) ?? defaultDays;
+
+    const joined = u.dateOfJoining ? u.dateOfJoining.getTime() : -Infinity;
+    const left = u.exitDate ? u.exitDate.getTime() : Infinity;
+
+    for (
+      let t = from.getTime();
+      t <= lastDay.getTime();
+      t += 86400000
+    ) {
+      const date = new Date(t);
+      const key = toKey(date);
+
+      // Not employed on this date — no target can be owed.
+      if (t < joined || t > left) continue;
+
+      // Not a working day on this person's shift.
+      const dow = date.getUTCDay() || 7;
+      if (!days.includes(dow)) continue;
+
+      // Public holiday or declared weekly off.
+      if (holidayDays.has(key)) continue;
+
+      const b = bucket(bucketKey(date, groupBy));
+
+      const leave = leaveMap.get(`${u.id}|${key}`);
+      if (leave === true) {
+        // Half day — half the target still applies.
+        person.daysExpected += 0.5;
+        person.daysOnLeave += 0.5;
+        person.targetSeconds += dailyTargetSeconds / 2;
+        b.daysExpected += 0.5;
+        b.daysOnLeave += 0.5;
+        b.targetSeconds += dailyTargetSeconds / 2;
+        continue;
+      }
+      if (leave === false) {
+        // Full leave day — no target accrues, so leave cannot hurt anyone.
+        person.daysOnLeave += 1;
+        b.daysOnLeave += 1;
+        continue;
+      }
+
+      person.daysExpected += 1;
+      person.targetSeconds += dailyTargetSeconds;
+      b.daysExpected += 1;
+      b.targetSeconds += dailyTargetSeconds;
+
+      if (!attendedDays.has(`${u.id}|${key}`)) person.daysAbsent += 1;
+    }
+  }
+
+  // --- actuals from sessions ------------------------------------------------
+
   let hasOpenSessions = false;
 
-  // --- sessions -------------------------------------------------------------
   for (const s of sessions) {
     if (String(s.status) === "ACTIVE" && !s.logoutAt) hasOpenSessions = true;
 
     const person = byPerson.get(s.userId);
     const b = bucket(bucketKey(s.date, groupBy));
 
-    const add = (row: { daysPresent: number; lateDays: number; productiveSeconds: number; breakSeconds: number; meetingSeconds: number; targetSeconds: number }) => {
-      row.daysPresent += 1;
-      row.productiveSeconds += s.productiveSeconds;
-      row.breakSeconds += s.breakSeconds;
-      row.meetingSeconds += s.meetingSeconds;
-      row.targetSeconds += dailyTargetSeconds;
-      if (s.wasLateLogin) row.lateDays += 1;
-    };
-
     if (person) {
-      add(person);
+      person.daysPresent += 1;
+      person.productiveSeconds += s.productiveSeconds;
+      person.breakSeconds += s.breakSeconds;
+      person.meetingSeconds += s.meetingSeconds;
       person.lateMinutes += s.lateByMinutes;
+      if (s.wasLateLogin) person.lateDays += 1;
       if (s.autoClosed) person.autoClosedDays += 1;
     }
 
-    add(b);
+    b.daysPresent += 1;
+    b.productiveSeconds += s.productiveSeconds;
+    b.breakSeconds += s.breakSeconds;
+    b.meetingSeconds += s.meetingSeconds;
+    if (s.wasLateLogin) b.lateDays += 1;
     b.peopleSeen.add(s.userId);
   }
 
-  // --- leave ---------------------------------------------------------------
-  // A leave day is not an absence. It adds no target, so it cannot drag
-  // attainment down — it is simply excluded from the denominator.
-  for (const l of leaveDays) {
-    const weight = l.isHalfDay ? 0.5 : 1;
-    const person = byPerson.get(l.userId);
-    if (person) person.daysOnLeave += weight;
-    bucket(bucketKey(l.date, groupBy)).daysOnLeave += weight;
-  }
+  // --- tasks ----------------------------------------------------------------
 
-  // --- tasks ---------------------------------------------------------------
   for (const t of tasks) {
     const person = byPerson.get(t.userId);
     if (!person) continue;
     const weight = WEIGHT_VALUES[String(t.weight)] ?? 1;
     person.tasksTotal += weight;
-    if (String(t.status) === "DONE") person.tasksDone += weight;
+    if (String(t.status) === "COMPLETED") person.tasksDone += weight;
   }
 
-  // --- alerts --------------------------------------------------------------
+  // --- alerts ---------------------------------------------------------------
+
   const alertCounts = new Map<string, number>();
   for (const a of alerts) {
     const person = byPerson.get(a.userId);
@@ -309,20 +397,19 @@ export async function getTeamReport(
     alertCounts.set(key, (alertCounts.get(key) ?? 0) + 1);
   }
 
-  // --- derived percentages -------------------------------------------------
+  // --- derived --------------------------------------------------------------
+
   for (const person of byPerson.values()) {
-    person.attainment = person.targetSeconds > 0
-      ? person.productiveSeconds / person.targetSeconds
-      : 0;
-    person.taskScore = person.tasksTotal > 0
-      ? person.tasksDone / person.tasksTotal
-      : 0;
+    person.attainment =
+      person.targetSeconds > 0 ? person.productiveSeconds / person.targetSeconds : 0;
+    person.taskScore = person.tasksTotal > 0 ? person.tasksDone / person.tasksTotal : 0;
   }
 
   const buckets = Array.from(byBucket.values())
     .map((b) => ({
       key: b.key,
       headcount: b.peopleSeen.size,
+      daysExpected: b.daysExpected,
       daysPresent: b.daysPresent,
       daysOnLeave: b.daysOnLeave,
       lateDays: b.lateDays,
@@ -335,15 +422,14 @@ export async function getTeamReport(
     }))
     .sort((a, z) => a.key.localeCompare(z.key));
 
-  const people = Array.from(byPerson.values()).sort(
-    (a, z) => z.attainment - a.attainment
-  );
+  const people = Array.from(byPerson.values()).sort((a, z) => z.attainment - a.attainment);
 
-  // --- totals --------------------------------------------------------------
-  const totals = emptyTotals();
+  const totals = blankTotals();
   for (const p of people) {
+    totals.daysExpected += p.daysExpected;
     totals.daysPresent += p.daysPresent;
     totals.daysOnLeave += p.daysOnLeave;
+    totals.daysAbsent += p.daysAbsent;
     totals.lateDays += p.lateDays;
     totals.productiveSeconds += p.productiveSeconds;
     totals.breakSeconds += p.breakSeconds;
@@ -353,23 +439,21 @@ export async function getTeamReport(
     totals.tasksTotal += p.tasksTotal;
     totals.tasksDone += p.tasksDone;
   }
-  totals.headcount = people.filter((p) => p.daysPresent > 0).length;
-  totals.attainment = totals.targetSeconds > 0
-    ? totals.productiveSeconds / totals.targetSeconds
-    : 0;
-  totals.taskScore = totals.tasksTotal > 0
-    ? totals.tasksDone / totals.tasksTotal
-    : 0;
+  totals.headcount = people.filter((p) => p.daysExpected > 0 || p.daysPresent > 0).length;
+  totals.attainment =
+    totals.targetSeconds > 0 ? totals.productiveSeconds / totals.targetSeconds : 0;
+  totals.taskScore = totals.tasksTotal > 0 ? totals.tasksDone / totals.tasksTotal : 0;
 
   return {
     range: { from: fromStr, to: toStr },
     groupBy,
     platform: viewer.platform?.name ?? null,
     scope:
-      viewer.role === "EMPLOYEE" ? "self"
-      : viewer.role === "MANAGER" ? "team"
-      : "platform",
-    target: { productiveHours: Number(productiveHours), breakBudgetMinutes },
+      viewer.role === "EMPLOYEE" ? "self" : viewer.role === "MANAGER" ? "team" : "platform",
+    target: { productiveHours, breakBudgetMinutes },
+    // Warns the UI that expected days may be overstated because no holiday
+    // calendar exists yet — every public holiday would count as a working day.
+    holidaysConfigured: holidays.length > 0,
     totals,
     people,
     buckets: groupBy === "person" ? [] : buckets,
@@ -389,8 +473,10 @@ type PersonRow = {
   employeeCode: string | null;
   role: string;
   designation: string | null;
+  daysExpected: number;
   daysPresent: number;
   daysOnLeave: number;
+  daysAbsent: number;
   lateDays: number;
   lateMinutes: number;
   autoClosedDays: number;
@@ -407,24 +493,25 @@ type PersonRow = {
 
 type BucketRow = {
   key: string;
-  daysPresent: number;
   peopleSeen: Set<string>;
-  headcount: number;
+  daysExpected: number;
+  daysPresent: number;
   daysOnLeave: number;
   lateDays: number;
   productiveSeconds: number;
   breakSeconds: number;
   meetingSeconds: number;
   targetSeconds: number;
-  attainment: number;
   alertCount: number;
 };
 
-function emptyTotals() {
+function blankTotals() {
   return {
     headcount: 0,
+    daysExpected: 0,
     daysPresent: 0,
     daysOnLeave: 0,
+    daysAbsent: 0,
     lateDays: 0,
     productiveSeconds: 0,
     breakSeconds: 0,
@@ -435,5 +522,24 @@ function emptyTotals() {
     tasksTotal: 0,
     tasksDone: 0,
     alertCount: 0,
+  };
+}
+
+function emptyReport(fromStr: string, toStr: string, groupBy: GroupBy) {
+  return {
+    range: { from: fromStr, to: toStr },
+    groupBy,
+    platform: null,
+    scope: "platform",
+    target: {
+      productiveHours: DEFAULT_PRODUCTIVE_HOURS,
+      breakBudgetMinutes: DEFAULT_BREAK_BUDGET_MINUTES,
+    },
+    holidaysConfigured: false,
+    totals: blankTotals(),
+    people: [] as PersonRow[],
+    buckets: [] as unknown[],
+    alertBreakdown: [] as { alertType: string; count: number }[],
+    hasOpenSessions: false,
   };
 }
