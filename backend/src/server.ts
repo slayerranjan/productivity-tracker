@@ -6,6 +6,7 @@ import authRoutes from "./modules/auth/auth.routes.js";
 import trackerRoutes from "./modules/tracker/tracker.routes.js";
 import taskRoutes from "./modules/tasks/tasks.routes.js";
 import reportRoutes from "./modules/reports/reports.routes.js";
+import adminRoutes from "./modules/admin/admin.routes.js";
 import { startTrackerScheduler } from "./modules/tracker/tracker.scheduler.js";
 
 const app = express();
@@ -46,6 +47,7 @@ app.use("/api/tracker", trackerRoutes);
 app.use("/api/tasks", taskRoutes);
 
 app.use("/api/reports", reportRoutes);
+app.use("/api/admin", adminRoutes);
 app.use((_req, res) => {
   res.status(404).json({ error: "Route not found" });
 });

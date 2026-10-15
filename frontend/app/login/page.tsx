@@ -1,84 +1,136 @@
+// ===========================================================================
+// LOGIN
+//
+// This is the only page that works without a token. Everything else in the
+// app redirects here when getToken() comes back empty.
+//
+// The server deliberately returns the same error for "no such email" and
+// "wrong password". Telling them apart would let someone discover which
+// email addresses exist — that's called email enumeration.
+// ===========================================================================
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet, clearToken, getToken } from "@/lib/api";
+import { apiPost, getToken, setToken } from "@/lib/api";
 
-type Me = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  role: string;
-  employeeCode: string | null;
-  platform: { name: string };
-};
-
-export default function DashboardPage() {
+export default function LoginPage() {
   const router = useRouter();
-  const [me, setMe] = useState<Me | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  // Already signed in? Don't make them log in again.
   useEffect(() => {
-    if (!getToken()) {
-      router.push("/login");
-      return;
-    }
-    apiGet<Me>("/auth/me")
-      .then(setMe)
-      .catch((err) => setError(err.message));
+    if (getToken()) router.replace("/dashboard");
   }, [router]);
 
-  function signOut() {
-    clearToken();
-    router.push("/login");
-  }
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
 
-  if (error) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-red-600">{error}</p>
-      </main>
-    );
-  }
-
-  if (!me) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-slate-500">Loading…</p>
-      </main>
-    );
+    try {
+      const result = await apiPost<{ token: string }>("/auth/login", {
+        email,
+        password,
+      });
+      setToken(result.token);
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sign in");
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">
-              {me.firstName} {me.lastName}
-            </h1>
-            <p className="text-sm text-slate-500">{me.platform.name}</p>
+    <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        {/* Brand mark */}
+        <div className="mb-8">
+          <div className="h-11 w-11 rounded-xl bg-slate-900 flex items-center justify-center mb-5">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="h-5 w-5"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
           </div>
-          <button
-            onClick={signOut}
-            className="text-sm text-slate-600 hover:text-slate-900 underline"
-          >
-            Sign out
-          </button>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+            Productivity Tracker
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Sign in to start your day
+          </p>
         </div>
 
-        <dl className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
-          {[
-            ["Email", me.email],
-            ["Role", me.role],
-            ["Employee code", me.employeeCode ?? "—"],
-          ].map(([label, value]) => (
-            <div key={label} className="flex justify-between px-5 py-3.5">
-              <dt className="text-sm text-slate-500">{label}</dt>
-              <dd className="text-sm font-medium text-slate-900">{value}</dd>
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4"
+        >
+          <div>
+            <label
+              htmlFor="email"
+              className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5"
+            >
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoFocus
+              autoComplete="username"
+              placeholder="you@avatarindia.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+              {error}
             </div>
-          ))}
-        </dl>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !email || !password}
+            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {loading ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-xs text-slate-400">
+          Trouble signing in? Raise it with HR.
+        </p>
       </div>
     </main>
   );

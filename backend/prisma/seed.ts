@@ -12,19 +12,33 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log("Seeding...");
 
-  const platformSeeds = [
-    { slug: "avatar", name: "Avatar", legalName: "Avatar India" },
-    { slug: "take-health", name: "Take Health", legalName: "Take Health" },
-    { slug: "co-lab", name: "Co-Lab", legalName: "Co-Lab" },
+    const platformSeeds = [
+    { slug: "avatar", name: "Avatar", legalName: "Avatar India", prefix: "AVT" },
+    { slug: "take-health", name: "Take Health", legalName: "Take Health", prefix: "TKH" },
+    { slug: "co-lab", name: "Co-Lab", legalName: "Co-Lab", prefix: "CLB" },
   ];
 
-  const platforms = [];
+    const platforms = [];
   for (const seed of platformSeeds) {
     platforms.push(
       await prisma.platform.upsert({
         where: { slug: seed.slug },
-        update: { name: seed.name, legalName: seed.legalName },
-        create: { ...seed, timezone: "Asia/Kolkata", country: "IN" },
+        update: {
+          name: seed.name,
+          legalName: seed.legalName,
+          employeeCodePrefix: seed.prefix,
+        },
+        // Listed field by field on purpose. A `...seed` spread would also
+        // copy `prefix`, which is the name in this file, not a column in
+        // the database — Prisma rejects unknown fields.
+        create: {
+          slug: seed.slug,
+          name: seed.name,
+          legalName: seed.legalName,
+          employeeCodePrefix: seed.prefix,
+          timezone: "Asia/Kolkata",
+          country: "IN",
+        },
       })
     );
     console.log(`  platform: ${seed.name}`);

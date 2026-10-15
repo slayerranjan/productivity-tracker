@@ -237,8 +237,7 @@ export default function ReportsPage() {
   const t = report?.totals;
 
   return (
-    <div className="space-y-6">
-      {/* --- header ------------------------------------------------------- */}
+    <div className="p-8 space-y-6">      {/* --- header ------------------------------------------------------- */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
@@ -365,20 +364,21 @@ export default function ReportsPage() {
       )}
 
       {/* --- alert breakdown --------------------------------------------- */}
-      {report && report.alertBreakdown.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Alerts raised
-          </span>
-          {report.alertBreakdown.map((a) => (
-            <span
-              key={a.alertType}
-              className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
-            >
-              {ALERT_LABELS[a.alertType] ?? a.alertType.toLowerCase().replace(/_/g, " ")}
-              <span className="ml-1.5 text-slate-500">{a.count}</span>
-            </span>
-          ))}
+            {t && report && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Tile label="People" value={String(t.headcount)} sub="with at least one day" />
+          <Tile label="Days present" value={days(t.daysPresent)} sub={`${days(t.daysOnLeave)} on leave`} />
+          <Tile label="Productive" value={hm(t.productiveSeconds)} sub={`of ${hm(t.targetSeconds)} target`} />
+          <Tile
+            label="Attainment"
+            value={pct(t.attainment)}
+            sub="productive ÷ target"
+            accent={bandClass(t.attainment)}
+          />
+          <Tile label="Break" value={hm(t.breakSeconds)} sub={`budget ${report.target.breakBudgetMinutes}m/day`} />
+          <Tile label="Meetings" value={hm(t.meetingSeconds)} sub="approved only" />
+          <Tile label="Late days" value={String(t.lateDays)} sub={`across ${t.headcount} people`} />
+          <Tile label="Alerts" value={String(t.alertCount)} sub="see breakdown below" />
         </div>
       )}
 

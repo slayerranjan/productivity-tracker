@@ -26,7 +26,7 @@ const NAV = [
   { href: "/dashboard/history", label: "My History", ready: true },
   { href: "/dashboard/team", label: "Live Team", ready: true, roles: ["MANAGER", "HR", "ADMIN"] },
   { href: "/dashboard/reports", label: "Reports", ready: true, roles: ["MANAGER", "HR", "ADMIN"] },
-  { href: "/dashboard/admin", label: "Admin", ready: false, roles: ["ADMIN"] },
+  { href: "/dashboard/admin", label: "Admin", ready: false, roles: ["ADMIN", "HR"] },
 ];
 
 export default function DashboardLayout({

@@ -15,6 +15,11 @@ model Platform {
   timezone String @default("Asia/Kolkata")
   country  String @default("IN")
 
+  // Prefix for auto-generated employee codes — AVT in AVT-0005.
+  // Explicit rather than derived, so a brand-new platform with no users
+  // still produces correct codes.
+  employeeCodePrefix String?
+
   // Used on offer letters and outgoing email
   legalName   String?
   logoUrl     String?
