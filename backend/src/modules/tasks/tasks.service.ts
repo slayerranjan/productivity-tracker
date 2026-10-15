@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
+import { platformToday } from "../../lib/dates.js";
 
 // A task's weight decides how much it contributes to the day's score.
 const WEIGHT_VALUES: Record<string, number> = {
@@ -7,20 +8,6 @@ const WEIGHT_VALUES: Record<string, number> = {
   HIGH: 3,
   CRITICAL: 5,
 };
-
-// NOTE: duplicated from tracker.service.ts — both should move to
-// lib/dates.ts in the hardening pass.
-function platformToday(timezone: string): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
-  return new Date(Date.UTC(get("year"), get("month") - 1, get("day")));
-}
 
 async function context(userId: string) {
   const user = await prisma.user.findUnique({

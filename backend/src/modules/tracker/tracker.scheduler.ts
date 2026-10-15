@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
-import { platformToday, localMinutes, recompute } from "./tracker.service.js";
+import { localMinutes, recompute } from "./tracker.service.js";
+import { platformToday } from "../../lib/dates.js";
 
 const INTERVAL_MINUTES = 15;
 

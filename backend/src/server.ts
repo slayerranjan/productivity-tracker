@@ -1,14 +1,12 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import trackerRoutes from "./modules/tracker/tracker.routes.js";
 import taskRoutes from "./modules/tasks/tasks.routes.js";
 import reportRoutes from "./modules/reports/reports.routes.js";
 import { startTrackerScheduler } from "./modules/tracker/tracker.scheduler.js";
-
-dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 5001);
@@ -45,6 +43,7 @@ app.get("/api/db-health", async (_req, res) => {
 app.use("/api/auth", authRoutes);
 
 app.use("/api/tracker", trackerRoutes);
+app.use("/api/tasks", taskRoutes);
 
 app.use("/api/reports", reportRoutes);
 app.use((_req, res) => {

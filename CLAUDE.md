@@ -97,12 +97,16 @@ Testing two users at once needs an incognito window — `localStorage` is per-or
 
 ## Known tech debt
 
-- `platformToday()` is duplicated in `src/modules/tracker/tracker.service.ts` (exported; also used by `tracker.scheduler.ts`) and `src/modules/tasks/tasks.service.ts` (private copy). Move it to `src/lib/dates.ts`.
-- `src/server.ts` uses `dotenv.config()` rather than `import "dotenv/config"`. It works today only because `src/lib/prisma.ts` loads dotenv first.
+- (none open — `platformToday()` now lives in `src/lib/dates.ts`; `server.ts` loads dotenv via `import "dotenv/config"` on line 1.)
 
-## Unverified / open issues (as of 2026-10-15)
+## Open issues (as of 2026-10-15)
 
-- **Reports page has never been opened in a browser** (`frontend/app/dashboard/reports/page.tsx`, backend `src/modules/reports/`).
-- **Reports nav item is still `ready: false`** in `frontend/app/dashboard/layout.tsx` (confirmed). Admin is also `ready: false` (expected — not built).
-- **Task routes are not mounted.** `src/server.ts` imports `taskRoutes` but never calls `app.use("/api/tasks", taskRoutes)`, while the frontend calls `/tasks`. Daily Tasks will 404 as the code stands — likely lost when Reports was wired in. Needs fixing and re-testing.
-- Git: nothing is committed yet; the working branch is `master` while the main branch is `main`.
+- **Sign-out is broken.** The login form is at `/` (`frontend/app/page.tsx`), but sign-out pushes to `/login`. `frontend/app/login/page.tsx` is a leftover profile page that, when logged out, redirects to `/login` (itself) and sits on "Loading…" forever. Verified in a browser.
+- **Reports page has no outer padding** — content touches the top and right edges (other pages use `p-8`).
+- **Reports stat-card captions look mismatched:** "Late days" card shows "0m on break"; "Alerts" card shows "0% task score". Confirm intent.
+- Git: working branch is `master` while the main branch is `main`.
+
+## Verified in a browser (2026-10-15, as admin)
+
+- Daily Tasks: add (HIGH, 3pt) → score 0/3, 0%; complete → 3/3, 100%; delete → 0/0. No console errors.
+- Reports: Group by Person (4 rows), Day (2 rows), Week (1 row, 2026-W42) all load; totals reconcile (9h00 + 8h49 = 17h49 vs 16h target = 111%).
