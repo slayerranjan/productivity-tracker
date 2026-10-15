@@ -1,0 +1,202 @@
+// ===========================================================================
+// ENUMS — every fixed list of values in the system lives here.
+//
+// WHY ONE FILE: a value guessed wrong ("NOT_STARTED" instead of "PENDING")
+// fails at runtime, not at save time. Keeping every list in one place means
+// there is one file to check before writing a query.
+// ===========================================================================
+
+// ---- People ---------------------------------------------------------------
+
+enum UserRole {
+  EMPLOYEE
+  MANAGER
+  HR
+  ADMIN
+}
+
+enum UserStatus {
+  CANDIDATE // offer sent, not yet an employee
+  INVITED // account created, never logged in
+  ACTIVE
+  SUSPENDED
+  EXITED
+}
+
+// Drives the tracker access gate. Access is granted only at ACTIVE.
+enum OnboardingStatus {
+  OFFER_SENT
+  OFFER_ACCEPTED
+  DOCUMENTS_PENDING // employee has not uploaded everything
+  DOCUMENTS_SUBMITTED // uploaded, awaiting HR review
+  AWAITING_RESUME // approved, HR has not uploaded resume/contract
+  ACTIVE // resume on file — tracker unlocked
+}
+
+enum TeamType {
+  SALES
+  SUPPORT
+  TECH
+  OPERATIONS
+  OTHER
+}
+
+// ---- Work session ---------------------------------------------------------
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+}
+
+enum BreakType {
+  TEA
+  LUNCH
+  WASHROOM
+  PERSONAL
+  OTHER
+}
+
+enum MeetingType {
+  TEAM
+  CLIENT
+  ONE_ON_ONE
+  TRAINING
+  INTERVIEW
+  OTHER
+}
+
+// Meeting time counts towards productive hours ONLY when APPROVED.
+enum MeetingApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ---- Daily tasks ----------------------------------------------------------
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskWeight {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ---- Attendance -----------------------------------------------------------
+
+// Simple on-leave marking. No balances, no entitlements, no approval flow.
+enum LeaveDayType {
+  PLANNED
+  SICK
+  COMP_OFF
+  UNPAID
+  OTHER
+}
+
+enum DayType {
+  WORKING
+  WEEKLY_OFF
+  PUBLIC_HOLIDAY
+  OPTIONAL_HOLIDAY
+}
+
+// ---- Hiring ---------------------------------------------------------------
+
+enum OfferStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum DocumentCategory {
+  IDENTITY // Aadhaar, PAN, passport
+  EDUCATION // degree, marksheets
+  EMPLOYMENT // payslips, relieving letter
+  BANKING
+  PHOTO
+  RESUME // uploaded by HR
+  CONTRACT // uploaded by HR
+  OTHER
+}
+
+enum DocumentStatus {
+  REQUESTED
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum InductionCategory {
+  COMPANY_OVERVIEW
+  PROBATION_POLICY
+  LEAVE_POLICY
+  CODE_OF_CONDUCT
+  IT_POLICY
+  ROLE_TRAINING
+  OTHER
+}
+
+// ---- Tickets --------------------------------------------------------------
+
+enum TicketCategory {
+  HR_QUERY
+  TECH_ISSUE
+  ADMIN_REQUEST
+  ATTENDANCE_CORRECTION
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// ---- Alerts ---------------------------------------------------------------
+
+enum AlertType {
+  LATE_LOGIN
+  BREAK_OVERAGE
+  OVERTIME
+  NO_LOGIN
+  LOW_PRODUCTIVITY
+  MEETING_PENDING_APPROVAL
+  BIOMETRIC_MISMATCH
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// ---- Biometric ------------------------------------------------------------
+
+enum BiometricImportStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum PunchMatchStatus {
+  MATCHED // tied to a user
+  UNMATCHED // no user found for this identifier
+  AMBIGUOUS // more than one possible user
+}

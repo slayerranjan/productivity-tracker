@@ -1,0 +1,90 @@
+// ===========================================================================
+// BIOMETRIC — Excel import and reconciliation against the tracker
+//
+// WHY RECONCILIATION RATHER THAN DISPLAY
+// A self-service tracker is trivially gamed: clock in from home, arrive at
+// 11. The biometric device records the truth about the door. Comparing the
+// two and flagging the gap is what makes the productivity figures credible.
+//
+// The column mapping is deliberately NOT hardcoded — see columnMap below.
+// The real export's headers are unknown until a sample sheet is supplied.
+// ===========================================================================
+
+model BiometricImport {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  fileName   String
+  storageKey String?
+
+  // Hash of the file's contents, so the same sheet uploaded twice is
+  // detected and rejected instead of doubling every punch.
+  fileHash String
+
+  // Which spreadsheet column feeds which field, e.g.
+  // { "employee": "Emp Code", "date": "Date", "in": "InTime", "out": "OutTime" }
+  // Stored per import so a changed export format does not break history.
+  columnMap Json?
+
+  periodFrom DateTime? @db.Date
+  periodTo   DateTime? @db.Date
+
+  status       BiometricImportStatus @default(PENDING)
+  rowsTotal    Int                   @default(0)
+  rowsMatched  Int                   @default(0)
+  rowsSkipped  Int                   @default(0)
+  errorMessage String?
+
+  uploadedById String   @db.Uuid
+  uploadedBy   User     @relation("ImportUploader", fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+  processedAt  DateTime?
+
+  punches BiometricPunch[]
+
+  @@unique([platformId, fileHash])
+  @@index([platformId, status])
+  @@map("biometric_imports")
+}
+
+model BiometricPunch {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  importId String          @db.Uuid
+  import   BiometricImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  // Exactly as it appeared in the sheet, kept so an unmatched row can be
+  // investigated rather than silently dropped.
+  rawIdentifier String
+  rawRow        Json?
+
+  // Null when the identifier matched no user.
+  userId String? @db.Uuid
+  user   User?   @relation(fields: [userId], references: [id])
+
+  matchStatus PunchMatchStatus @default(UNMATCHED)
+
+  date    DateTime  @db.Date
+  firstIn DateTime?
+  lastOut DateTime?
+
+  // --- Reconciliation ------------------------------------------------------
+  // Filled by comparing against the work session for the same user and date.
+  // Positive inDeltaMinutes means the tracker clock-in was LATER than the
+  // biometric entry — i.e. they were in the building before clocking in.
+  inDeltaMinutes  Int?
+  outDeltaMinutes Int?
+  isFlagged       Boolean @default(false)
+  flagReason      String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([platformId, date])
+  @@index([importId])
+  @@index([isFlagged])
+  @@map("biometric_punches")
+}

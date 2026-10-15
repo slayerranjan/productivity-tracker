@@ -1,0 +1,201 @@
+// ===========================================================================
+// TRACKER — work sessions, breaks, meetings, tasks, leave days, alerts
+//
+// TIMEZONE RULE
+// `date` columns hold the calendar day in the PLATFORM's timezone, stored as
+// a UTC-midnight DATE. Always build them with Date.UTC(y, m, d) from the
+// platform-local parts. Using local midnight directly shifts the day by one.
+// ===========================================================================
+
+model WorkSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date     DateTime      @db.Date
+  loginAt  DateTime
+  logoutAt DateTime?
+  status   SessionStatus @default(ACTIVE)
+
+  // Running totals, recomputed whenever a break or meeting closes and on
+  // clock-out. Reports read these columns directly, never recalculate.
+  productiveSeconds Int @default(0)
+  breakSeconds      Int @default(0)
+  meetingSeconds    Int @default(0)
+
+  // Distinguishes a real clock-out from one the scheduler forced because the
+  // session was left open overnight.
+  autoClosed   Boolean   @default(false)
+  autoClosedAt DateTime?
+
+  // Snapshot of the shift this day was measured against, so a later shift
+  // change does not silently rewrite history.
+  shiftStartTime String?
+  wasLateLogin   Boolean @default(false)
+  lateByMinutes  Int     @default(0)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  breaks   TrackerBreak[]
+  meetings TrackerMeeting[]
+
+  @@unique([userId, date])
+  @@index([platformId, date])
+  @@index([platformId, status])
+  @@map("work_sessions")
+}
+
+model TrackerBreak {
+  id            String      @id @default(uuid()) @db.Uuid
+  workSessionId String      @db.Uuid
+  workSession   WorkSession @relation(fields: [workSessionId], references: [id], onDelete: Cascade)
+
+  breakType BreakType
+  startedAt DateTime
+  endedAt   DateTime?
+
+  // Set when the break closes. Null while it is still running.
+  durationSeconds Int?
+
+  autoClosed Boolean @default(false)
+  reason     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workSessionId])
+  @@map("tracker_breaks")
+}
+
+model TrackerMeeting {
+  id            String      @id @default(uuid()) @db.Uuid
+  workSessionId String      @db.Uuid
+  workSession   WorkSession @relation(fields: [workSessionId], references: [id], onDelete: Cascade)
+
+  meetingType MeetingType
+  title       String?
+  attendeeIds String[]    @db.Uuid
+
+  // APPROVAL RULE
+  // Time counts towards productive hours ONLY when approvalStatus is
+  // APPROVED. Managers and above are auto-approved on creation. Every total
+  // calculation must skip non-approved meetings.
+  approvalStatus  MeetingApprovalStatus @default(PENDING)
+  requestedAt     DateTime              @default(now())
+  
+  invitedById String? @db.Uuid
+  invitedBy   User?   @relation("MeetingInviter", fields: [invitedById], references: [id])
+  reviewedAt      DateTime?
+  reviewedById    String?               @db.Uuid
+  reviewedBy      User?                 @relation("MeetingReviewer", fields: [reviewedById], references: [id])
+  rejectionReason String?
+
+  // Set at the moment of approval, so waiting time is not paid.
+  startedAt DateTime?
+  endedAt   DateTime?
+
+  durationSeconds Int?
+  autoClosed      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([workSessionId])
+  @@index([approvalStatus])
+  @@map("tracker_meetings")
+}
+
+model DailyTask {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date        DateTime @db.Date
+  title       String
+  description String?
+
+  weight TaskWeight @default(MEDIUM)
+  status TaskStatus @default(PENDING)
+
+  // CARRY-FORWARD RULE
+  // A task still PENDING or IN_PROGRESS at end of day appears on the next
+  // day's list. carriedFromDate records where it started, so the original
+  // day's score is not retroactively changed.
+  carriedFromDate DateTime? @db.Date
+  carryCount      Int       @default(0)
+
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+  @@index([platformId, date])
+  @@index([userId, status])
+  @@map("daily_tasks")
+}
+
+// SIMPLE ON-LEAVE MARKING
+// No balances, no entitlements, no approval workflow. HR or the manager marks
+// a person on leave for a date; that day is excluded from productivity
+// averages instead of counting as absence, and they show as "On Leave" on the
+// live dashboard. One row per calendar day, so reports join rather than doing
+// date-range arithmetic on every query.
+model LeaveDay {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("LeaveSubject", fields: [userId], references: [id], onDelete: Cascade)
+
+  date      DateTime     @db.Date
+  leaveType LeaveDayType @default(PLANNED)
+
+  isHalfDay   Boolean @default(false)
+  isFirstHalf Boolean @default(true)
+
+  note String?
+
+  markedById String @db.Uuid
+  markedBy   User   @relation("LeaveMarker", fields: [markedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([platformId, date])
+  @@map("leave_days")
+}
+
+model Alert {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  alertType AlertType
+  severity  AlertSeverity @default(WARNING)
+  date      DateTime      @db.Date
+
+  // Already resolved to readable text — "Late login at 11:04 (shift 10:00)"
+  message String
+
+  // The values that produced it, kept for the report trail
+  context Json?
+
+  acknowledgedAt   DateTime?
+  acknowledgedById String?   @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  // One alert of a given type per person per day
+  @@unique([userId, date, alertType])
+  @@index([platformId, date])
+  @@map("alerts")
+}

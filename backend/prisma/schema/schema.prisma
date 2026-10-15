@@ -1,0 +1,15 @@
+// ===========================================================================
+// Root schema — generator and datasource only. Models live in sibling files.
+//
+// The connection URL is NOT here. In Prisma 7 it lives in prisma.config.ts
+// (for migrations) and in the adapter in src/lib/prisma.ts (for the app).
+// ===========================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}

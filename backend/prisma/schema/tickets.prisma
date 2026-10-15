@@ -1,0 +1,83 @@
+// ===========================================================================
+// TICKETS — HR queries, tech issues, admin requests, attendance corrections
+//
+// An ATTENDANCE_CORRECTION ticket is the ONLY sanctioned way to change a
+// recorded work session. On approval the service applies the requested times
+// to the session and stamps appliedAt, so an approval can never be applied
+// twice and there is always a trail of who changed what and why.
+// ===========================================================================
+
+model Ticket {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  // Short human reference shown in the UI — TKT-000142
+  reference String
+
+  raisedById String @db.Uuid
+  raisedBy   User   @relation("TicketRaiser", fields: [raisedById], references: [id], onDelete: Cascade)
+
+  category TicketCategory
+  priority TicketPriority @default(NORMAL)
+  status   TicketStatus   @default(OPEN)
+
+  subject     String
+  description String
+
+  // Routed automatically by category: HR_QUERY to HR, TECH_ISSUE and
+  // ADMIN_REQUEST to ADMIN, ATTENDANCE_CORRECTION to the reporting manager.
+  assignedToId String? @db.Uuid
+  assignedTo   User?   @relation("TicketAssignee", fields: [assignedToId], references: [id])
+
+  // --- Response-time target -----------------------------------------------
+  // dueAt is set from the category's target when the ticket is created.
+  // Anything past due and still open is surfaced to Admin.
+  dueAt        DateTime?
+  firstReplyAt DateTime?
+  resolvedAt   DateTime?
+  closedAt     DateTime?
+
+  // --- ATTENDANCE_CORRECTION only -----------------------------------------
+  correctionDate      DateTime? @db.Date
+  requestedLoginAt    DateTime?
+  requestedLogoutAt   DateTime?
+  // Stamped when the approved correction has been written to the work
+  // session. Prevents a second application of the same approval.
+  appliedAt           DateTime?
+
+  resolutionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages TicketMessage[]
+
+  @@unique([platformId, reference])
+  @@index([platformId, status])
+  @@index([assignedToId, status])
+  @@index([raisedById])
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id       String @id @default(uuid()) @db.Uuid
+  ticketId String @db.Uuid
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorId String @db.Uuid
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  body String
+
+  // Visible to staff only, not to the person who raised the ticket
+  isInternal Boolean @default(false)
+
+  attachmentKey  String?
+  attachmentName String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}

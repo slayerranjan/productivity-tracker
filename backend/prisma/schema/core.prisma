@@ -1,0 +1,262 @@
+// ===========================================================================
+// CORE — platforms, people, teams, shifts, calendar
+//
+// TENANCY RULE
+// Every top-level table carries platformId. Child tables (breaks, meetings,
+// ticket messages) inherit it through their parent instead of duplicating it.
+// Every query filters on platformId in the service layer.
+// ===========================================================================
+
+model Platform {
+  id   String @id @default(uuid()) @db.Uuid
+  name String // "Take Health", "Avatar", "Co-Lab"
+  slug String @unique
+
+  timezone String @default("Asia/Kolkata")
+  country  String @default("IN")
+
+  // Used on offer letters and outgoing email
+  legalName   String?
+  logoUrl     String?
+  addressLine String?
+  senderEmail String?
+
+  // Inherited by new teams
+  defaultDailyWorkHours  Float @default(9)
+  defaultProductiveHours Float @default(8)
+  defaultBreakBudgetMins Int   @default(60)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  teams              Team[]
+  shifts             Shift[]
+  holidays           Holiday[]
+  workSessions       WorkSession[]
+  dailyTasks         DailyTask[]
+  leaveDays          LeaveDay[]
+  alerts             Alert[]
+  offerTemplates     OfferTemplate[]
+  offers             Offer[]
+  documentRules      DocumentRequirement[]
+  employeeDocuments  EmployeeDocument[]
+  inductionDocuments InductionDocument[]
+  tickets            Ticket[]
+  biometricImports   BiometricImport[]
+  biometricPunches   BiometricPunch[]
+
+  @@map("platforms")
+}
+
+model User {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  employeeCode String? // auto-generated, HR can override
+  email        String
+  passwordHash String?
+  firstName    String
+  lastName     String
+  phone        String?
+  avatarUrl    String?
+
+  role   UserRole   @default(EMPLOYEE)
+  status UserStatus @default(CANDIDATE)
+
+  designation      String?
+  dateOfJoining    DateTime?
+  probationEndDate DateTime?
+  exitDate         DateTime?
+
+  // Identifier used by the biometric device, so imported punches can be
+  // matched to this person. Nullable because not everyone is enrolled.
+  biometricId String?
+
+  // --- Tracker access gate -------------------------------------------------
+  // trackerAccessEnabled flips to true only when HR uploads the resume.
+  // Middleware checks it on every tracker route.
+  onboardingStatus     OnboardingStatus @default(OFFER_SENT)
+  trackerAccessEnabled Boolean          @default(false)
+  accessGrantedAt      DateTime?
+
+  shiftId String? @db.Uuid
+  shift   Shift?  @relation(fields: [shiftId], references: [id])
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  teamMemberships   TeamMember[]
+  managedTeams      Team[]                     @relation("TeamManager")
+  workSessions      WorkSession[]
+  dailyTasks        DailyTask[]
+  leaveDays         LeaveDay[]                 @relation("LeaveSubject")
+  leaveMarkedBy     LeaveDay[]                 @relation("LeaveMarker")
+  meetingsReviewed  TrackerMeeting[]           @relation("MeetingReviewer")
+    meetingsInvited   TrackerMeeting[]           @relation("MeetingInviter")
+  alerts            Alert[]
+  offers            Offer[]                    @relation("OfferCandidate")
+  offersSent        Offer[]                    @relation("OfferSender")
+  documents         EmployeeDocument[]         @relation("DocumentOwner")
+  documentsReviewed EmployeeDocument[]         @relation("DocumentReviewer")
+  acknowledgements  InductionAcknowledgement[]
+  ticketsRaised     Ticket[]                   @relation("TicketRaiser")
+  ticketsAssigned   Ticket[]                   @relation("TicketAssignee")
+  ticketMessages    TicketMessage[]
+  biometricPunches  BiometricPunch[]
+  biometricImports  BiometricImport[]          @relation("ImportUploader")
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+
+  @@unique([platformId, email])
+  @@unique([platformId, employeeCode])
+  @@index([platformId, role])
+  @@index([platformId, status])
+  @@index([biometricId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model Team {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  name     String
+  teamType TeamType @default(OTHER)
+
+  managerId String? @db.Uuid
+  manager   User?   @relation("TeamManager", fields: [managerId], references: [id])
+
+  shiftId String? @db.Uuid
+  shift   Shift?  @relation(fields: [shiftId], references: [id])
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members TeamMember[]
+  config  TeamConfig?
+
+  @@unique([platformId, name])
+  @@index([platformId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id     String @id @default(uuid()) @db.Uuid
+  teamId String @db.Uuid
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  isActive Boolean   @default(true)
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  @@unique([teamId, userId])
+  @@index([userId, isActive])
+  @@map("team_members")
+}
+
+// Per-team targets and alert thresholds. EVERY alert reads from here —
+// nothing in the code is hardcoded.
+model TeamConfig {
+  id     String @id @default(uuid()) @db.Uuid
+  teamId String @unique @db.Uuid
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  dailyWorkHours     Float @default(9)
+  productiveHours    Float @default(8)
+  breakBudgetMinutes Int   @default(60)
+
+  lateLoginGraceMinutes    Int   @default(15) // measured from shift start
+  breakOverageAlertMinutes Int   @default(0) // 0 = alert as soon as budget is exceeded
+  overtimeAlertMinutes     Int   @default(15)
+  lowProductivityThreshold Float @default(0.75) // fraction of productiveHours
+
+  // How far biometric and tracker times may differ before it is flagged
+  biometricToleranceMinutes Int @default(10)
+
+  notifyByEmail    Boolean @default(true)
+  notifyByWhatsapp Boolean @default(false)
+  eodReportTime    String  @default("19:30") // HH:mm, platform timezone
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("team_configs")
+}
+
+// Named working hours. "Late login" is measured against the person's shift,
+// never one global time.
+model Shift {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  name      String // "General 10-7", "Night 10pm-7am"
+  startTime String // "10:00"
+  endTime   String // "19:00"
+
+  spansMidnight Boolean @default(false)
+
+  // Mon..Sun as 1..7. Days not listed are weekly offs.
+  workingDays Int[] @default([1, 2, 3, 4, 5, 6])
+
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+  teams Team[]
+
+  @@unique([platformId, name])
+  @@map("shifts")
+}
+
+// Without this, a public holiday looks identical to absence.
+model Holiday {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  date    DateTime @db.Date
+  name    String
+  dayType DayType  @default(PUBLIC_HOLIDAY)
+
+  createdAt DateTime @default(now())
+
+  @@unique([platformId, date, name])
+  @@index([platformId, date])
+  @@map("holidays")
+}
