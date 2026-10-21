@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { useMe } from "../layout";
 
@@ -10,6 +10,7 @@ type Row = {
   employeeCode: string | null;
   designation: string | null;
   teamName: string;
+  company: string | null;
   status:
     | "WORKING"
     | "ON_BREAK"
@@ -89,6 +90,10 @@ const MEETING_TYPES = [
   { value: "OTHER", label: "Other" },
 ];
 
+// Someone clocked in is invitable; anyone else cannot be pulled into a
+// meeting because a meeting attaches to a running work session.
+const INVITABLE: Row["status"][] = ["WORKING", "ON_BREAK"];
+
 function hm(total: number) {
   const s = Math.max(0, Math.floor(total));
   const h = Math.floor(s / 3600);
@@ -114,8 +119,8 @@ export default function TeamPage() {
         apiGet<Row[]>("/tracker/team"),
         apiGet<Alert[]>("/tracker/alerts"),
       ]);
-      setRows(team);
-      setAlerts(alertList);
+      setRows(Array.isArray(team) ? team : []);
+      setAlerts(Array.isArray(alertList) ? alertList : []);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the team");
@@ -130,7 +135,6 @@ export default function TeamPage() {
     }
   }
 
-
   useEffect(() => {
     load();
     const poll = setInterval(load, 15000);
@@ -141,6 +145,15 @@ export default function TeamPage() {
     setSelected((s) =>
       s.includes(userId) ? s.filter((x) => x !== userId) : [...s, userId]
     );
+  }
+
+  // Tick every clocked-in person in one company at once. A manager running
+  // two companies calls one standup per company, not one across both.
+  function selectCompany(list: Row[]) {
+    const ids = list
+      .filter((r) => INVITABLE.includes(r.status))
+      .map((r) => r.userId);
+    setSelected((s) => Array.from(new Set([...s, ...ids])));
   }
 
   async function sendInvite() {
@@ -167,7 +180,7 @@ export default function TeamPage() {
           .join(", ");
         parts.push(`skipped ${names}`);
       }
-      setNotice(parts.join(" · "));
+      setNotice(parts.join(" - "));
       setSelected([]);
       setTitle("");
       await load();
@@ -178,6 +191,22 @@ export default function TeamPage() {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // GROUPING BY COMPANY
+  // The reporting line crosses companies, so one manager's list can hold
+  // people from Take Health, Avatar and Co-Lab at once. Flat, that list is
+  // unreadable; grouped, each company is its own board.
+  // ---------------------------------------------------------------------
+  const groups = useMemo(() => {
+    const map = new Map<string, Row[]>();
+    for (const r of rows) {
+      const key = r.company ?? "No company set";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [rows]);
+
   if (!me) return null;
 
   const counts = rows.reduce<Record<string, number>>((acc, r) => {
@@ -187,19 +216,22 @@ export default function TeamPage() {
 
   const invitable = selected.filter((id) => {
     const r = rows.find((x) => x.userId === id);
-    return r && (r.status === "WORKING" || r.status === "ON_BREAK");
+    return r && INVITABLE.includes(r.status);
   });
 
   return (
     <div className="p-8 max-w-6xl">
       <header className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm text-slate-400">Live · refreshes every 15s</p>
+          <p className="text-sm text-slate-400">Live - refreshes every 15s</p>
           <h1 className="text-2xl font-semibold text-slate-900 mt-0.5">
             Your team today
           </h1>
         </div>
-        <p className="text-sm text-slate-400">{rows.length} people</p>
+        <p className="text-sm text-slate-400">
+          {rows.length} people
+          {groups.length > 1 ? ` across ${groups.length} companies` : ""}
+        </p>
       </header>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
@@ -227,15 +259,13 @@ export default function TeamPage() {
         ))}
       </div>
 
-            {alerts.length > 0 && (
+      {alerts.length > 0 && (
         <section className="mb-6 rounded-2xl border border-slate-200 bg-white overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-900">
               Needs attention
             </h2>
-            <span className="text-xs text-slate-400">
-              {alerts.length} today
-            </span>
+            <span className="text-xs text-slate-400">{alerts.length} today</span>
           </div>
           <ul className="divide-y divide-slate-100">
             {alerts.map((a) => (
@@ -251,7 +281,7 @@ export default function TeamPage() {
                   </span>
                   <p className="text-sm text-slate-700 truncate">
                     <span className="font-medium text-slate-900">{a.name}</span>
-                    {" — "}
+                    {" - "}
                     {a.message}
                   </p>
                 </div>
@@ -279,13 +309,13 @@ export default function TeamPage() {
       )}
 
       {selected.length > 0 && (
-        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 sticky top-4 z-10">
           <p className="text-sm font-medium text-indigo-900 mb-3">
             {selected.length} selected
             {invitable.length !== selected.length && (
               <span className="font-normal text-indigo-600">
                 {" "}
-                · only {invitable.length} are clocked in and can be invited
+                - only {invitable.length} are clocked in and can be invited
               </span>
             )}
           </p>
@@ -312,7 +342,7 @@ export default function TeamPage() {
               onClick={sendInvite}
               className="rounded-lg bg-indigo-600 text-white text-sm font-medium px-5 py-2 hover:bg-indigo-700 disabled:opacity-50"
             >
-              {busy ? "Sending…" : "Send invite"}
+              {busy ? "Sending..." : "Send invite"}
             </button>
             <button
               onClick={() => setSelected([])}
@@ -324,122 +354,167 @@ export default function TeamPage() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/60">
-              <th className="w-10 px-4 py-3" />
-              <th className="text-left px-2 py-3 font-medium text-slate-500">
-                Person
-              </th>
-              <th className="text-left px-4 py-3 font-medium text-slate-500">
-                Status
-              </th>
-              <th className="text-left px-4 py-3 font-medium text-slate-500">
-                In at
-              </th>
-              <th className="text-right px-4 py-3 font-medium text-slate-500">
-                Productive
-              </th>
-              <th className="text-right px-4 py-3 font-medium text-slate-500">
-                Break
-              </th>
-              <th className="text-right px-4 py-3 font-medium text-slate-500">
-                Meetings
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((r) => {
-              const s = STATUS[r.status];
-              const overBreak = r.breakSeconds > r.breakBudget;
-              const pct = Math.min(
-                100,
-                (r.productiveSeconds / r.productiveTarget) * 100
-              );
+      {groups.map(([company, list]) => {
+        const live = list.filter((r) => INVITABLE.includes(r.status)).length;
 
-              return (
-                <tr
-                  key={r.userId}
-                  className={
-                    r.pendingInvite ? "bg-violet-50/60" : "hover:bg-slate-50/60"
-                  }
+        return (
+          <section
+            key={company}
+            className="mb-6 rounded-2xl border border-slate-200 bg-white overflow-hidden"
+          >
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-4 bg-slate-50/60">
+              <div className="flex items-baseline gap-3 min-w-0">
+                <h2 className="text-sm font-semibold text-slate-900 truncate">
+                  {company}
+                </h2>
+                <span className="text-xs text-slate-400 shrink-0">
+                  {list.length} {list.length === 1 ? "person" : "people"} - {live}{" "}
+                  clocked in
+                </span>
+              </div>
+              {live > 0 && (
+                <button
+                  onClick={() => selectCompany(list)}
+                  className="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-800"
                 >
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(r.userId)}
-                      onChange={() => toggle(r.userId)}
-                      className="rounded border-slate-300"
-                    />
-                  </td>
-                  <td className="px-2 py-3">
-                    <p className="font-medium text-slate-900">{r.name}</p>
-                    <p className="text-xs text-slate-400">
-                      {r.employeeCode ?? "—"}
-                      {r.designation ? ` · ${r.designation}` : ""}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${s.chip}`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-                      {s.label}
-                      {r.breakType ? ` · ${r.breakType.toLowerCase()}` : ""}
-                    </span>
-                    {r.pendingInvite && (
-                      <span className="ml-2 text-xs text-violet-600">
-                        invite pending
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 tabular-nums">
-                    {r.loginAt
-                      ? new Date(r.loginAt).toLocaleTimeString("en-IN", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "—"}
-                    {r.wasLateLogin && (
-                      <span className="ml-1.5 text-xs text-amber-600">
-                        +{r.lateByMinutes}m
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <p className="text-slate-900 font-medium tabular-nums">
-                      {hm(r.productiveSeconds)}
-                    </p>
-                    <div className="mt-1 h-1 w-20 ml-auto rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </td>
-                  <td
-                    className={`px-4 py-3 text-right tabular-nums ${
-                      overBreak ? "text-red-600 font-medium" : "text-slate-600"
-                    }`}
-                  >
-                    {hm(r.breakSeconds)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-600 tabular-nums">
-                    {hm(r.meetingSeconds)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  Select everyone clocked in
+                </button>
+              )}
+            </div>
 
-        {rows.length === 0 && (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="w-10 px-4 py-2.5" />
+                  <th className="text-left px-2 py-2.5 font-medium text-slate-500">
+                    Person
+                  </th>
+                  <th className="text-left px-4 py-2.5 font-medium text-slate-500">
+                    Team
+                  </th>
+                  <th className="text-left px-4 py-2.5 font-medium text-slate-500">
+                    Status
+                  </th>
+                  <th className="text-left px-4 py-2.5 font-medium text-slate-500">
+                    In at
+                  </th>
+                  <th className="text-right px-4 py-2.5 font-medium text-slate-500">
+                    Productive
+                  </th>
+                  <th className="text-right px-4 py-2.5 font-medium text-slate-500">
+                    Break
+                  </th>
+                  <th className="text-right px-4 py-2.5 font-medium text-slate-500">
+                    Meetings
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {list.map((r) => {
+                  const s = STATUS[r.status];
+                  const overBreak = r.breakSeconds > r.breakBudget;
+                  const pct = Math.min(
+                    100,
+                    r.productiveTarget > 0
+                      ? (r.productiveSeconds / r.productiveTarget) * 100
+                      : 0
+                  );
+
+                  return (
+                    <tr
+                      key={r.userId}
+                      className={
+                        r.pendingInvite
+                          ? "bg-violet-50/60"
+                          : "hover:bg-slate-50/60"
+                      }
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(r.userId)}
+                          onChange={() => toggle(r.userId)}
+                          className="rounded border-slate-300"
+                        />
+                      </td>
+                      <td className="px-2 py-3">
+                        <p className="font-medium text-slate-900">{r.name}</p>
+                        <p className="text-xs text-slate-400">
+                          {r.employeeCode ?? "-"}
+                          {r.designation ? ` - ${r.designation}` : ""}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 text-xs">
+                        {r.teamName}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${s.chip}`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${s.dot}`}
+                          />
+                          {s.label}
+                          {r.breakType ? ` - ${r.breakType.toLowerCase()}` : ""}
+                        </span>
+                        {r.pendingInvite && (
+                          <span className="ml-2 text-xs text-violet-600">
+                            invite pending
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 tabular-nums">
+                        {r.loginAt
+                          ? new Date(r.loginAt).toLocaleTimeString("en-IN", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "-"}
+                        {r.wasLateLogin && (
+                          <span className="ml-1.5 text-xs text-amber-600">
+                            +{r.lateByMinutes}m
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="text-slate-900 font-medium tabular-nums">
+                          {hm(r.productiveSeconds)}
+                        </p>
+                        <div className="mt-1 h-1 w-20 ml-auto rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right tabular-nums ${
+                          overBreak
+                            ? "text-red-600 font-medium"
+                            : "text-slate-600"
+                        }`}
+                      >
+                        {hm(r.breakSeconds)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600 tabular-nums">
+                        {hm(r.meetingSeconds)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        );
+      })}
+
+      {rows.length === 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white">
           <p className="px-6 py-10 text-center text-sm text-slate-400">
-            No team members yet.
+            Nobody reports to you yet, and you manage no active teams.
           </p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -114,6 +114,11 @@ model DailyTask {
   platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
   userId     String   @db.Uuid
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    // The project this work belongs to. Nullable because tasks written before
+  // projects existed have none, and because someone on no project can still
+  // record their day.
+  teamId String? @db.Uuid
+  team   Team?   @relation(fields: [teamId], references: [id])
 
   date        DateTime @db.Date
   title       String
@@ -121,6 +126,31 @@ model DailyTask {
 
   weight TaskWeight @default(MEDIUM)
   status TaskStatus @default(PENDING)
+
+  
+  // --- Approval ------------------------------------------------------------
+  // A proposed task does not count towards the day's score and does not
+  // appear on the working list until a manager approves it.
+  approvalStatus TaskApprovalStatus @default(PENDING)
+  approvedById   String?            @db.Uuid
+  approvedBy     User?              @relation("TaskApprover", fields: [approvedById], references: [id])
+  approvedAt     DateTime?
+  rejectionNote  String?
+
+  // Set when a manager assigned the task rather than the employee proposing
+  // it. Those are auto-approved — there is nobody left to approve them.
+  assignedById String? @db.Uuid
+  assignedBy   User?   @relation("TaskAssigner", fields: [assignedById], references: [id])
+
+  // --- Outcome -------------------------------------------------------------
+  // Only settable after the employee has marked the task done. A manager
+  // cannot fail something that was never finished.
+  outcome        TaskOutcome?
+  completionNote String?
+  reviewedById   String?      @db.Uuid
+  reviewedBy     User?        @relation("TaskReviewer", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  reviewNote     String?
 
   // CARRY-FORWARD RULE
   // A task still PENDING or IN_PROGRESS at end of day appears on the next
@@ -138,6 +168,7 @@ model DailyTask {
   @@index([platformId, date])
   @@index([userId, status])
   @@map("daily_tasks")
+    @@index([teamId, date])
 }
 
 // SIMPLE ON-LEAVE MARKING

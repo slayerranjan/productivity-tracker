@@ -1,3 +1,21 @@
+// ===========================================================================
+// TODAY
+//
+// The hero is the day itself, drawn as a strip: green where you worked,
+// amber where you were on break, violet for meetings.
+//
+// Break types are four visible buttons rather than a dropdown. The old menu
+// was absolutely positioned inside a section with overflow-hidden, so the
+// browser clipped it and the button appeared dead.
+//
+// BUILT FOR A MINIMISED TAB
+// People work with this hidden, so: the tab title carries the live state, a
+// meeting invite raises a desktop notification, and the page re-syncs the
+// moment it regains focus. Background tabs have their timers throttled, so
+// nothing here counts upwards — every figure is derived from timestamps and
+// is correct whenever it next renders.
+// ===========================================================================
+
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -45,9 +63,8 @@ type Config = {
 const BREAK_TYPES = [
   { value: "TEA", label: "Tea" },
   { value: "LUNCH", label: "Lunch" },
-  { value: "WASHROOM", label: "Washroom" },
+  { value: "WASHROOM", label: "Bio" },
   { value: "PERSONAL", label: "Personal" },
-  { value: "OTHER", label: "Other" },
 ];
 
 const MEETING_LABELS: Record<string, string> = {
@@ -61,11 +78,67 @@ const MEETING_LABELS: Record<string, string> = {
 
 function hms(total: number) {
   const s = Math.max(0, Math.floor(total));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return [h, m, sec].map((n) => String(n).padStart(2, "0")).join(":");
+  return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
 }
+
+function hm(total: number) {
+  return hms(total).slice(0, 5);
+}
+
+function clockTime(iso: string | number) {
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type Segment = { start: number; end: number; kind: "productive" | "break" | "meeting" };
+
+function buildSegments(session: Session, now: number): Segment[] {
+  const login = new Date(session.loginAt).getTime();
+  const finish = session.logoutAt ? new Date(session.logoutAt).getTime() : now;
+
+  const spans: { start: number; end: number; kind: "break" | "meeting" }[] = [];
+
+  for (const b of session.breaks) {
+    spans.push({
+      start: new Date(b.startedAt).getTime(),
+      end: b.endedAt ? new Date(b.endedAt).getTime() : finish,
+      kind: "break",
+    });
+  }
+  for (const m of session.meetings) {
+    if (m.approvalStatus !== "APPROVED" || !m.startedAt) continue;
+    spans.push({
+      start: new Date(m.startedAt).getTime(),
+      end: m.endedAt ? new Date(m.endedAt).getTime() : finish,
+      kind: "meeting",
+    });
+  }
+
+  spans.sort((a, z) => a.start - z.start);
+
+  const segments: Segment[] = [];
+  let cursor = login;
+
+  for (const span of spans) {
+    const start = Math.max(span.start, cursor);
+    if (start > cursor) segments.push({ start: cursor, end: start, kind: "productive" });
+    if (span.end > start) segments.push({ start, end: span.end, kind: span.kind });
+    cursor = Math.max(cursor, span.end);
+  }
+
+  if (finish > cursor) segments.push({ start: cursor, end: finish, kind: "productive" });
+  return segments;
+}
+
+const SEGMENT_FILL: Record<Segment["kind"], string> = {
+  productive: "bg-emerald-400",
+  break: "bg-amber-400",
+  meeting: "bg-violet-400",
+};
 
 export default function TodayPage() {
   const me = useMe();
@@ -74,8 +147,9 @@ export default function TodayPage() {
   const [invites, setInvites] = useState<Meeting[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [showBreaks, setShowBreaks] = useState(false);
+  const [canNotify, setCanNotify] = useState(false);
   const fetchedAt = useRef<number>(Date.now());
+  const notified = useRef<Set<string>>(new Set());
   const [, forceTick] = useState(0);
 
   const load = useCallback(async () => {
@@ -95,8 +169,6 @@ export default function TodayPage() {
     }
   }, []);
 
-  // First load, then poll. The timer ticks locally every second and
-  // self-corrects against the server every 20.
   useEffect(() => {
     load();
     const poll = setInterval(load, 20000);
@@ -106,6 +178,47 @@ export default function TodayPage() {
       clearInterval(tick);
     };
   }, [load]);
+
+  // A hidden tab has its timers throttled, so the poll above may not have run
+  // for a minute. Re-sync the instant someone comes back to the window.
+  useEffect(() => {
+    const resync = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", resync);
+    window.addEventListener("focus", resync);
+    return () => {
+      document.removeEventListener("visibilitychange", resync);
+      window.removeEventListener("focus", resync);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setCanNotify(Notification.permission === "granted");
+    }
+  }, []);
+
+  async function askToNotify() {
+    if (!("Notification" in window)) return;
+    const result = await Notification.requestPermission();
+    setCanNotify(result === "granted");
+  }
+
+  useEffect(() => {
+    if (!canNotify) return;
+    for (const invite of invites) {
+      if (notified.current.has(invite.id)) continue;
+      notified.current.add(invite.id);
+      const from = invite.invitedBy
+        ? `${invite.invitedBy.firstName} ${invite.invitedBy.lastName}`
+        : "Your manager";
+      new Notification("Meeting invite", {
+        body: `${from} invited you to a ${MEETING_LABELS[invite.meetingType] ?? "meeting"}. Your clock starts when you accept.`,
+        tag: invite.id,
+      });
+    }
+  }, [invites, canNotify]);
 
   async function act(path: string, body?: unknown) {
     setBusy(true);
@@ -117,11 +230,8 @@ export default function TodayPage() {
       setError(err instanceof Error ? err.message : "That didn't work");
     } finally {
       setBusy(false);
-      setShowBreaks(false);
     }
   }
-
-  if (!me) return null;
 
   const openBreak = session?.breaks.find((b) => !b.endedAt) ?? null;
   const openMeeting =
@@ -130,86 +240,117 @@ export default function TodayPage() {
     ) ?? null;
 
   const running = session?.status === "ACTIVE";
-  const elapsedSinceFetch = running ? (Date.now() - fetchedAt.current) / 1000 : 0;
+  const now = Date.now();
+  const sinceFetch = running ? (now - fetchedAt.current) / 1000 : 0;
 
   const productive =
     (session?.productiveSeconds ?? 0) +
-    (running && !openBreak && !openMeeting ? elapsedSinceFetch : 0);
-  const breakSecs =
-    (session?.breakSeconds ?? 0) + (openBreak ? elapsedSinceFetch : 0);
-  const meetingSecs =
-    (session?.meetingSeconds ?? 0) + (openMeeting ? elapsedSinceFetch : 0);
+    (running && !openBreak && !openMeeting ? sinceFetch : 0);
+  const breakSecs = (session?.breakSeconds ?? 0) + (openBreak ? sinceFetch : 0);
+  const meetingSecs = (session?.meetingSeconds ?? 0) + (openMeeting ? sinceFetch : 0);
+
+  // The tab strip is the display when this window is minimised.
+  useEffect(() => {
+    if (!running) {
+      document.title = "Tracker";
+      return;
+    }
+    document.title = openBreak
+      ? `☕ ${hm(breakSecs)} break · Tracker`
+      : openMeeting
+        ? `👥 ${hm(meetingSecs)} meeting · Tracker`
+        : `⏱ ${hm(productive)} · Tracker`;
+  });
+
+  if (!me) return null;
 
   const targetSecs = (config?.productiveHours ?? 8) * 3600;
   const budgetSecs = (config?.breakBudgetMinutes ?? 60) * 60;
   const progress = Math.min(100, (productive / targetSecs) * 100);
-  const breakUsed = Math.min(100, (breakSecs / budgetSecs) * 100);
-  const overBudget = breakSecs > budgetSecs;
+  const budgetLeft = budgetSecs - breakSecs;
+  const overBudget = budgetLeft < 0;
 
   const state = !session
-    ? { label: "Not clocked in", dot: "bg-slate-300", text: "text-slate-500" }
+    ? { label: "Not clocked in", dot: "bg-slate-500" }
     : session.status === "COMPLETED"
-    ? { label: "Day complete", dot: "bg-slate-400", text: "text-slate-500" }
-    : openBreak
-    ? { label: "On break", dot: "bg-amber-500", text: "text-amber-700" }
-    : openMeeting
-    ? { label: "In a meeting", dot: "bg-violet-500", text: "text-violet-700" }
-    : { label: "Working", dot: "bg-emerald-500", text: "text-emerald-700" };
+      ? { label: "Day complete", dot: "bg-slate-400" }
+      : openBreak
+        ? { label: `On a ${openBreak.breakType.toLowerCase()} break`, dot: "bg-amber-400" }
+        : openMeeting
+          ? { label: "In a meeting", dot: "bg-violet-400" }
+          : { label: "Working", dot: "bg-emerald-400" };
+
+  const login = session ? new Date(session.loginAt).getTime() : now;
+  const plannedEnd = login + (config?.dailyWorkHours ?? 9) * 3600_000;
+  const windowEnd = Math.max(plannedEnd, now);
+  const windowSpan = Math.max(1, windowEnd - login);
+  const segments = session ? buildSegments(session, now) : [];
 
   return (
-    <div className="p-8 max-w-5xl">
-      <header className="mb-6">
-        <p className="text-sm text-slate-400">
-          {new Date().toLocaleDateString("en-IN", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          })}
-        </p>
-        <h1 className="text-2xl font-semibold text-slate-900 mt-0.5">
-          {new Date().getHours() < 12
-            ? "Good morning"
-            : new Date().getHours() < 17
-            ? "Good afternoon"
-            : "Good evening"}
-          , {me.firstName}
-        </h1>
+    <div className="p-8 max-w-5xl space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+            {new Date().getHours() < 12
+              ? "Good morning"
+              : new Date().getHours() < 17
+                ? "Good afternoon"
+                : "Good evening"}
+            , {me.firstName}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {new Date().toLocaleDateString("en-IN", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
+          </p>
+        </div>
+
+        {session && (
+          <p className="text-sm text-slate-500">
+            Clocked in at{" "}
+            <span className="font-medium text-slate-700">
+              {clockTime(session.loginAt)}
+            </span>
+            {session.wasLateLogin && (
+              <span className="ml-2 rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                {session.lateByMinutes}m late
+              </span>
+            )}
+          </p>
+        )}
       </header>
 
       {invites.map((invite) => (
         <div
           key={invite.id}
-          className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4 flex items-center justify-between gap-4 animate-pulse"
+          className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-violet-300 bg-violet-50 p-4"
         >
           <div>
-                        <p className="text-sm font-medium text-violet-900">
+            <p className="text-sm font-medium text-violet-900">
               {invite.invitedBy
                 ? `${invite.invitedBy.firstName} ${invite.invitedBy.lastName}`
                 : "Your manager"}{" "}
-              invited you to a{" "}
-              {MEETING_LABELS[invite.meetingType] ?? "meeting"}
+              invited you to a {MEETING_LABELS[invite.meetingType] ?? "meeting"}
             </p>
-            <p className="text-xs text-violet-700 mt-0.5">
-              {invite.title ? `${invite.title} · ` : ""}
+            <p className="mt-0.5 text-xs text-violet-700">
+              {invite.title ? `${invite.title} — ` : ""}
               your clock starts when you accept
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex shrink-0 gap-2">
             <button
               disabled={busy}
-              onClick={() =>
-                act(`/tracker/invites/${invite.id}/respond`, { accept: true })
-              }
-              className="rounded-lg bg-violet-600 text-white text-sm font-medium px-4 py-2 hover:bg-violet-700 disabled:opacity-50"
+              onClick={() => act(`/tracker/invites/${invite.id}/respond`, { accept: true })}
+              className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
             >
               Accept
             </button>
             <button
               disabled={busy}
-              onClick={() =>
-                act(`/tracker/invites/${invite.id}/respond`, { accept: false })
-              }
-              className="rounded-lg border border-violet-300 text-violet-700 text-sm font-medium px-4 py-2 hover:bg-violet-100 disabled:opacity-50"
+              onClick={() => act(`/tracker/invites/${invite.id}/respond`, { accept: false })}
+              className="rounded-lg border border-violet-300 px-4 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-100 disabled:opacity-50"
             >
               Decline
             </button>
@@ -218,189 +359,222 @@ export default function TodayPage() {
       ))}
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {error}
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <section className="rounded-2xl bg-slate-900 p-7 text-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${state.dot}`} />
-            <span className={`text-sm font-medium ${state.text}`}>
-              {state.label}
-            </span>
+            <span className="text-sm font-medium text-slate-200">{state.label}</span>
           </div>
-          {session && (
-            <p className="text-xs text-slate-400">
-              In at{" "}
-              {new Date(session.loginAt).toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-              {session.wasLateLogin && (
-                <span className="ml-2 text-amber-600">
-                  late by {session.lateByMinutes}m
-                </span>
-              )}
-            </p>
+
+          {!canNotify && running && (
+            <button
+              onClick={askToNotify}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
+            >
+              Alert me about meetings
+            </button>
           )}
         </div>
 
-        <div className="px-6 py-7 grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <div className="sm:col-span-1">
-            <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">
-              Productive
-            </p>
-            <p className="text-4xl font-semibold text-slate-900 tabular-nums tracking-tight">
+        <div className="mt-6">
+          <div className="relative h-14 overflow-hidden rounded-xl bg-slate-800">
+            {segments.map((seg, i) => {
+              const left = ((seg.start - login) / windowSpan) * 100;
+              const width = ((seg.end - seg.start) / windowSpan) * 100;
+              if (width <= 0) return null;
+              return (
+                <div
+                  key={i}
+                  className={`absolute inset-y-0 ${SEGMENT_FILL[seg.kind]}`}
+                  style={{ left: `${left}%`, width: `${Math.max(width, 0.4)}%` }}
+                  title={`${seg.kind} · ${clockTime(seg.start)}–${clockTime(seg.end)}`}
+                />
+              );
+            })}
+
+            {!session && (
+              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                Your day starts when you clock in
+              </div>
+            )}
+          </div>
+
+          {session && (
+            <div className="mt-2 flex justify-between text-xs text-slate-500">
+              <span>{clockTime(login)}</span>
+              <span>{clockTime(windowEnd)}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-7 grid gap-6 sm:grid-cols-3">
+          <div>
+            <p className="text-3xl font-semibold tabular-nums tracking-tight text-emerald-400">
               {hms(productive)}
             </p>
-            <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <p className="mt-1 text-xs text-slate-400">
+              productive — {Math.round(progress)}% of {config?.productiveHours ?? 8}h
+            </p>
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-800">
               <div
-                className="h-full bg-emerald-500 transition-all"
+                className="h-full bg-emerald-400 transition-all duration-700"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <p className="text-xs text-slate-400 mt-1.5">
-              target {config?.productiveHours ?? 8}h
-            </p>
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">
-              Break
-            </p>
             <p
-              className={`text-4xl font-semibold tabular-nums tracking-tight ${
-                overBudget ? "text-red-600" : "text-slate-900"
+              className={`text-3xl font-semibold tabular-nums tracking-tight ${
+                overBudget ? "text-rose-400" : "text-amber-400"
               }`}
             >
               {hms(breakSecs)}
             </p>
-            <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <p className="mt-1 text-xs text-slate-400">
+              {overBudget
+                ? `break — ${Math.ceil(-budgetLeft / 60)}m over budget`
+                : `break — ${Math.floor(budgetLeft / 60)}m left of ${
+                    config?.breakBudgetMinutes ?? 60
+                  }m`}
+            </p>
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-800">
               <div
-                className={`h-full transition-all ${
-                  overBudget ? "bg-red-500" : "bg-amber-500"
+                className={`h-full transition-all duration-700 ${
+                  overBudget ? "bg-rose-400" : "bg-amber-400"
                 }`}
-                style={{ width: `${breakUsed}%` }}
+                style={{ width: `${Math.min(100, (breakSecs / budgetSecs) * 100)}%` }}
               />
             </div>
-            <p className="text-xs text-slate-400 mt-1.5">
-              budget {config?.breakBudgetMinutes ?? 60}m
-              {overBudget && (
-                <span className="text-red-600 font-medium"> · over</span>
-              )}
-            </p>
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">
-              Meetings
-            </p>
-            <p className="text-4xl font-semibold text-slate-900 tabular-nums tracking-tight">
+            <p className="text-3xl font-semibold tabular-nums tracking-tight text-violet-400">
               {hms(meetingSecs)}
             </p>
-            <p className="text-xs text-slate-400 mt-5">
-              {session?.meetings.filter((m) => m.approvalStatus === "APPROVED")
-                .length ?? 0}{" "}
+            <p className="mt-1 text-xs text-slate-400">
+              meetings —{" "}
+              {session?.meetings.filter((m) => m.approvalStatus === "APPROVED").length ?? 0}{" "}
               today
             </p>
           </div>
         </div>
+      </section>
 
-        <div className="px-6 py-4 border-t border-slate-100 flex flex-wrap gap-2.5">
-          {!running && (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        {!running && (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm text-slate-600">
+              {session?.status === "COMPLETED"
+                ? "Your day is closed. Clock back in if you're picking it up again."
+                : "Nothing is being recorded yet."}
+            </p>
             <button
               disabled={busy}
-              onClick={() => act("/tracker/clock-in")}
-              className="rounded-lg bg-slate-900 text-white text-sm font-medium px-5 py-2.5 hover:bg-slate-800 disabled:opacity-50"
+              onClick={() => {
+                void askToNotify();
+                void act("/tracker/clock-in");
+              }}
+              className="rounded-lg bg-slate-900 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
             >
               {session?.status === "COMPLETED" ? "Clock back in" : "Clock in"}
             </button>
-          )}
+          </div>
+        )}
 
-          {running && !openBreak && !openMeeting && (
-            <div className="relative">
-              <button
-                disabled={busy}
-                onClick={() => setShowBreaks((s) => !s)}
-                className="rounded-lg bg-amber-500 text-white text-sm font-medium px-5 py-2.5 hover:bg-amber-600 disabled:opacity-50"
-              >
-                Take a break
-              </button>
-              {showBreaks && (
-                <div className="absolute z-10 mt-1.5 w-44 rounded-lg border border-slate-200 bg-white shadow-lg py-1">
-                  {BREAK_TYPES.map((b) => (
-                    <button
-                      key={b.value}
-                      onClick={() =>
-                        act("/tracker/break/start", { breakType: b.value })
-                      }
-                      className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+        {running && !openBreak && !openMeeting && (
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-slate-600">Take a break</span>
+
+            <div className="flex flex-wrap gap-2">
+              {BREAK_TYPES.map((b) => (
+                <button
+                  key={b.value}
+                  disabled={busy}
+                  onClick={() => act("/tracker/break/start", { breakType: b.value })}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-800 disabled:opacity-50"
+                >
+                  {b.label}
+                </button>
+              ))}
             </div>
-          )}
 
-          {openBreak && (
-            <button
-              disabled={busy}
-              onClick={() => act("/tracker/break/end")}
-              className="rounded-lg bg-emerald-600 text-white text-sm font-medium px-5 py-2.5 hover:bg-emerald-700 disabled:opacity-50"
-            >
-              Back from break
-            </button>
-          )}
-
-          {openMeeting && (
-            <button
-              disabled={busy}
-              onClick={() => act("/tracker/meeting/end")}
-              className="rounded-lg bg-violet-600 text-white text-sm font-medium px-5 py-2.5 hover:bg-violet-700 disabled:opacity-50"
-            >
-              End meeting
-            </button>
-          )}
-
-          {running && (
             <button
               disabled={busy}
               onClick={() => act("/tracker/clock-out")}
-              className="rounded-lg border border-slate-300 text-slate-700 text-sm font-medium px-5 py-2.5 hover:bg-slate-50 disabled:opacity-50"
+              className="ml-auto rounded-lg border border-slate-300 px-5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
             >
               Clock out
             </button>
-          )}
-        </div>
+          </div>
+        )}
+
+        {openBreak && (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm text-slate-600">
+              On a {openBreak.breakType.toLowerCase()} break since{" "}
+              {clockTime(openBreak.startedAt)}.
+            </p>
+            <button
+              disabled={busy}
+              onClick={() => act("/tracker/break/end")}
+              className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            >
+              Back to work
+            </button>
+          </div>
+        )}
+
+        {openMeeting && (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm text-slate-600">
+              In a {MEETING_LABELS[openMeeting.meetingType] ?? "meeting"}
+              {openMeeting.title ? ` — ${openMeeting.title}` : ""}.
+            </p>
+            <button
+              disabled={busy}
+              onClick={() => act("/tracker/meeting/end")}
+              className="rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+            >
+              End meeting
+            </button>
+          </div>
+        )}
       </section>
 
       {session && session.breaks.length > 0 && (
-        <section className="mt-5 rounded-2xl border border-slate-200 bg-white overflow-hidden">
-          <div className="px-6 py-3.5 border-b border-slate-100">
-            <h2 className="text-sm font-medium text-slate-900">
-              Today's breaks
-            </h2>
+        <section className="rounded-2xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-5 py-3.5">
+            <h2 className="text-sm font-medium text-slate-900">Breaks today</h2>
           </div>
           <ul className="divide-y divide-slate-100">
             {session.breaks.map((b) => (
               <li
                 key={b.id}
-                className="px-6 py-3 flex items-center justify-between text-sm"
+                className="flex items-center justify-between px-5 py-3 text-sm"
               >
-                <span className="text-slate-700 capitalize">
-                  {b.breakType.toLowerCase()}
+                <span className="flex items-center gap-2.5">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      b.endedAt ? "bg-amber-400" : "animate-pulse bg-amber-500"
+                    }`}
+                  />
+                  <span className="capitalize text-slate-700">
+                    {b.breakType === "WASHROOM" ? "Bio" : b.breakType.toLowerCase()}
+                  </span>
                 </span>
-                <span className="text-slate-500 tabular-nums">
-                  {new Date(b.startedAt).toLocaleTimeString("en-IN", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                <span className="tabular-nums text-slate-500">
+                  {clockTime(b.startedAt)}
                   {b.endedAt
-                    ? ` · ${Math.round((b.durationSeconds ?? 0) / 60)}m`
+                    ? ` – ${clockTime(b.endedAt)} · ${Math.max(
+                        1,
+                        Math.round((b.durationSeconds ?? 0) / 60)
+                      )}m`
                     : " · running"}
                 </span>
               </li>

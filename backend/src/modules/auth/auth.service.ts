@@ -2,11 +2,41 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../../lib/prisma.js";
 
-export async function login(email: string, password: string) {
-  const user = await prisma.user.findFirst({
-    where: { email: email.toLowerCase().trim() },
+// ---------------------------------------------------------------------------
+// LOGIN BY EMAIL **OR** EMPLOYEE ID
+//
+// None of the 51 people HR sent us have a work email address. Telecallers
+// will not remember an invented one, so the employee ID they already know
+// from payroll — AWL-01, Avance-07 — is the identifier they type.
+//
+// No migration needed: employeeCode already exists on User. What it lacks is
+// a unique index, so this resolves defensively and refuses to guess when two
+// people share a code rather than letting one sign in as the other.
+// ---------------------------------------------------------------------------
+async function findByIdentifier(identifier: string) {
+  const id = identifier.trim();
+  if (!id) return null;
+
+  // An "@" means they typed an email. Anything else is treated as a code.
+  if (id.includes("@")) {
+    return prisma.user.findFirst({
+      where: { email: id.toLowerCase() },
+      include: { platform: true },
+    });
+  }
+
+  const matches = await prisma.user.findMany({
+    where: { employeeCode: { equals: id, mode: "insensitive" } },
     include: { platform: true },
+    take: 2,
   });
+
+  if (matches.length > 1) throw new Error("DUPLICATE_EMPLOYEE_ID");
+  return matches[0] ?? null;
+}
+
+export async function login(identifier: string, password: string) {
+  const user = await findByIdentifier(identifier);
 
   if (!user || !user.passwordHash) {
     throw new Error("INVALID_CREDENTIALS");
@@ -56,10 +86,13 @@ function publicUser(user: any) {
     designation: user.designation,
     onboardingStatus: user.onboardingStatus,
     trackerAccessEnabled: user.trackerAccessEnabled,
+        // The frontend can't route someone to the change-password screen if it
+    // doesn't know they need it.
+    mustChangePassword: user.mustChangePassword,
     platform: {
       id: user.platform.id,
       name: user.platform.name,
       slug: user.platform.slug,
     },
   };
-}   
+}

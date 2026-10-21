@@ -1,5 +1,5 @@
 // ===========================================================================
-// CORE — platforms, people, teams, shifts, calendar
+// CORE â€” platforms, people, teams, shifts, calendar
 //
 // TENANCY RULE
 // Every top-level table carries platformId. Child tables (breaks, meetings,
@@ -15,7 +15,7 @@ model Platform {
   timezone String @default("Asia/Kolkata")
   country  String @default("IN")
 
-  // Prefix for auto-generated employee codes — AVT in AVT-0005.
+  // Prefix for auto-generated employee codes â€” AVT in AVT-0005.
   // Explicit rather than derived, so a brand-new platform with no users
   // still produces correct codes.
   employeeCodePrefix String?
@@ -51,6 +51,8 @@ model Platform {
   tickets            Ticket[]
   biometricImports   BiometricImport[]
   biometricPunches   BiometricPunch[]
+  salarySlips        SalarySlip[]
+  auditLogs AuditLog[]
 
   @@map("platforms")
 }
@@ -60,7 +62,11 @@ model User {
   platformId String   @db.Uuid
   platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
 
-  employeeCode String? // auto-generated, HR can override
+  // @unique matters now that this is a LOGIN identifier. Two people sharing
+  // a code would make "who is signing in" ambiguous â€” Postgres allows many
+  // NULLs, so people without a code are unaffected.
+  employeeCode String? @unique
+  auditActions AuditLog[] @relation("AuditActor")
   email        String
   passwordHash String?
   firstName    String
@@ -80,12 +86,28 @@ model User {
   // matched to this person. Nullable because not everyone is enrolled.
   biometricId String?
 
+    // Forces a password change at first full login, so the temporary password
+  // HR chose cannot be used by HR to sign in as this person later.
+  mustChangePassword Boolean @default(false)
+
+  // Starts the 48-hour HR response clock. Stamped when the last mandatory
+  // document is submitted, cleared when onboarding completes.
+  documentsSubmittedAt DateTime?
+
   // --- Tracker access gate -------------------------------------------------
   // trackerAccessEnabled flips to true only when HR uploads the resume.
   // Middleware checks it on every tracker route.
   onboardingStatus     OnboardingStatus @default(OFFER_SENT)
   trackerAccessEnabled Boolean          @default(false)
   accessGrantedAt      DateTime?
+
+    // --- Reporting line ------------------------------------------------------
+  // Approvals follow this, not team membership. An employee reports to a team
+  // manager, who reports to a senior manager, who reports to the company
+  // head. Only the head has nobody above them, and only they self-approve.
+  reportsToId   String? @db.Uuid
+  reportsTo     User?   @relation("ReportsTo", fields: [reportsToId], references: [id])
+  directReports User[]  @relation("ReportsTo")
 
   shiftId String? @db.Uuid
   shift   Shift?  @relation(fields: [shiftId], references: [id])
@@ -98,6 +120,9 @@ model User {
   managedTeams      Team[]                     @relation("TeamManager")
   workSessions      WorkSession[]
   dailyTasks        DailyTask[]
+  tasksApproved     DailyTask[]                @relation("TaskApprover")
+  tasksAssigned     DailyTask[]                @relation("TaskAssigner")
+  tasksReviewed     DailyTask[]                @relation("TaskReviewer")  
   leaveDays         LeaveDay[]                 @relation("LeaveSubject")
   leaveMarkedBy     LeaveDay[]                 @relation("LeaveMarker")
   meetingsReviewed  TrackerMeeting[]           @relation("MeetingReviewer")
@@ -113,12 +138,15 @@ model User {
   ticketMessages    TicketMessage[]
   biometricPunches  BiometricPunch[]
   biometricImports  BiometricImport[]          @relation("ImportUploader")
+    salarySlips         SalarySlip[]             @relation("SalarySlipOwner")
+  salarySlipsUploaded SalarySlip[]             @relation("SalarySlipUploader")
   refreshTokens     RefreshToken[]
   passwordResets    PasswordReset[]
 
   @@unique([platformId, email])
   @@unique([platformId, employeeCode])
   @@index([platformId, role])
+  @@index([reportsToId])
   @@index([platformId, status])
   @@index([biometricId])
   @@map("users")
@@ -169,6 +197,7 @@ model Team {
   updatedAt DateTime @updatedAt
 
   members TeamMember[]
+    dailyTasks DailyTask[]
   config  TeamConfig?
 
   @@unique([platformId, name])
@@ -186,13 +215,15 @@ model TeamMember {
   isActive Boolean   @default(true)
   joinedAt DateTime  @default(now())
   leftAt   DateTime?
+   isPrimary Boolean @default(false)
 
   @@unique([teamId, userId])
   @@index([userId, isActive])
   @@map("team_members")
+
 }
 
-// Per-team targets and alert thresholds. EVERY alert reads from here —
+// Per-team targets and alert thresholds. EVERY alert reads from here â€”
 // nothing in the code is hardcoded.
 model TeamConfig {
   id     String @id @default(uuid()) @db.Uuid
@@ -210,6 +241,10 @@ model TeamConfig {
 
   // How far biometric and tracker times may differ before it is flagged
   biometricToleranceMinutes Int @default(10)
+
+  // Hours HR has to approve documents and complete onboarding before the
+  // candidate is flagged to managers.
+  onboardingSlaHours Int @default(48)
 
   notifyByEmail    Boolean @default(true)
   notifyByWhatsapp Boolean @default(false)
@@ -264,4 +299,32 @@ model Holiday {
   @@unique([platformId, date, name])
   @@index([platformId, date])
   @@map("holidays")
+}
+
+// Who changed what, and when. Without this, "the system shows X" is the end
+// of every disagreement â€” with it, you can say who made it X and at what
+// time. Required in practice the moment attendance affects pay.
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  platformId String?   @db.Uuid
+  platform   Platform? @relation(fields: [platformId], references: [id], onDelete: SetNull)
+
+  actorId String? @db.Uuid
+  actor   User?   @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  method String // POST, DELETE
+  path   String // /api/projects/:id/members
+  status Int // the HTTP status that came back
+
+  // Request body with secrets stripped. Enough to answer "what did they
+  // change", never enough to leak a password.
+  detail Json?
+
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([platformId, createdAt])
+  @@map("audit_logs")
 }

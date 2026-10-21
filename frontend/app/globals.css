@@ -1,8 +1,34 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   DESIGN TOKENS
+   One place for colour, type and depth. Every screen reads from here, so a
+   change to the brand is a change to this block and nothing else.
+--------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f7f9;
+  --foreground: #0f172a;
+
+  /* Brand — indigo for action, emerald for "working", amber for "on break" */
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+
+  /* The sidebar is deliberately dark: it frames the work area and makes the
+     white content cards read as the surface you act on. */
+  --sidebar: #0f172a;
+  --sidebar-hover: #1e293b;
+  --sidebar-text: #94a3b8;
+  --sidebar-active: #ffffff;
+
+  --ring: rgba(99, 102, 241, 0.35);
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-lift: 0 4px 6px -1px rgba(15, 23, 42, 0.07),
+    0 10px 20px -5px rgba(15, 23, 42, 0.08);
 }
 
 @theme inline {
@@ -12,15 +38,192 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* NOTE: the default Next.js dark-mode block was removed on purpose. Every
+   screen in this app is built on light cards; honouring the OS dark setting
+   gave white text on white cards. If we want dark mode it needs designing,
+   not inheriting. */
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Numbers in a table must not dance as they tick. Every live duration and
+   percentage uses this. */
+.tabular-nums,
+table,
+input[type="date"],
+input[type="time"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   FOCUS
+   Visible focus on keyboard only — HR will tab through the admin forms all
+   day, and a mouse click shouldn't leave a ring behind.
+--------------------------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Form controls shouldn't look like 1998 */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2394a3b8' d='M1.4 0 6 4.6 10.6 0 12 1.4 6 7.4 0 1.4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  padding-right: 2rem;
+  appearance: none;
+}
+input[type="checkbox"] {
+  accent-color: var(--brand-600);
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+button:not(:disabled) {
+  cursor: pointer;
+}
+button,
+a {
+  transition: background-color 0.14s ease, color 0.14s ease,
+    border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
+}
+button:not(:disabled):active {
+  transform: translateY(0.5px);
+}
+
+/* ---------------------------------------------------------------------------
+   SCROLLBARS
+   The default Windows scrollbar is 17px of grey and it makes every panel
+   look like a file manager.
+--------------------------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: content-box;
+}
+
+/* ---------------------------------------------------------------------------
+   MOTION
+   Short and purposeful. Pages fade in so a 15-second poll doesn't feel like
+   a flicker; the live dot breathes so you can tell at a glance the screen
+   is actually live and not frozen.
+--------------------------------------------------------------------------- */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in {
+  animation: fadeUp 0.22s ease-out both;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+.live-dot {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #e8ecf1;
+  border-radius: 8px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Printing a payslip or a report shouldn't print the sidebar */
+@media print {
+  aside,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
 }

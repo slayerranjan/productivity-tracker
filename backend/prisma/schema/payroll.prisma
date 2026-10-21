@@ -1,0 +1,47 @@
+// ===========================================================================
+// PAYROLL — salary slips
+//
+// This stores and distributes slips; it does NOT calculate payroll. The
+// amounts are optional metadata so the list is scannable without opening
+// every PDF — they are not the source of truth for anyone's pay.
+//
+// A slip is invisible until publishedAt is set. Nobody should see a payslip
+// that is still being corrected.
+// ===========================================================================
+
+model SalarySlip {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("SalarySlipOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  // 1-12 and a four-digit year, rather than a date, because a slip belongs
+  // to a month and not to any particular day in it.
+  month Int
+  year  Int
+
+  grossAmount Decimal? @db.Decimal(12, 2)
+  deductions  Decimal? @db.Decimal(12, 2)
+  netAmount   Decimal? @db.Decimal(12, 2)
+
+  // Storage key only — never a public URL. Signed on read.
+  storageKey String
+  fileName   String
+  fileSize   Int?
+  mimeType   String?
+
+  uploadedById String @db.Uuid
+  uploadedBy   User   @relation("SalarySlipUploader", fields: [uploadedById], references: [id])
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // One slip per person per month. Re-uploading replaces instead of
+  // creating a second October.
+  @@unique([userId, year, month])
+  @@index([platformId, year, month])
+  @@map("salary_slips")
+}

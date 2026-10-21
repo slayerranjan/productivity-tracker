@@ -36,7 +36,20 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 
 type Options = {
   teams: { id: string; name: string }[];
-  shifts: { id: string; name: string; startTime: string; endTime: string; isDefault: boolean }[];
+    people: {
+    id: string;
+    name: string;
+    employeeCode: string | null;
+    company: string | null;
+  }[];
+
+  shifts: {
+    id: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    isDefault: boolean;
+  }[];
   managers: { id: string; name: string; role: string }[];
   roles: string[];
   statuses: string[];
@@ -61,6 +74,7 @@ type Person = {
   trackerAccessEnabled: boolean;
   lastLoginAt: string | null;
   shift: { id: string; name: string } | null;
+  reportsTo: { id: string; name: string } | null;
   teams: { id: string; name: string }[];
 };
 
@@ -303,6 +317,9 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
               <th className="px-4 py-3">Role</th>
               <th className="px-4 py-3">Team</th>
               <th className="px-4 py-3">Shift</th>
+              <th className="px-4 py-3">Reports to</th>
+              <th className="px-4 py-3">Shift</th>
+              <th className="px-4 py-3">Reports to</th>
               <th className="px-4 py-3">Tracker</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3" />
@@ -321,6 +338,7 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
                   {p.teams.map((t) => t.name).join(", ") || "—"}
                 </td>
                 <td className="px-4 py-3 text-slate-600">{p.shift?.name ?? "—"}</td>
+                <td className="px-4 py-3 text-slate-600">{p.reportsTo?.name ?? "—"}</td>
                 <td className="px-4 py-3">
                   {p.trackerAccessEnabled ? (
                     <span className="text-xs text-emerald-700">open</span>
@@ -404,6 +422,7 @@ function PersonDrawer({
     designation: person?.designation ?? "",
     employeeCode: person?.employeeCode ?? "",
     shiftId: person?.shift?.id ?? "",
+    reportsToId: person?.reportsTo?.id ?? "",
     teamId: "",
     dateOfJoining: person?.dateOfJoining?.slice(0, 10) ?? "",
     skipOnboarding: false,
@@ -428,7 +447,8 @@ function PersonDrawer({
           role: form.role,
           designation: form.designation || undefined,
           employeeCode: form.employeeCode || undefined,
-          shiftId: form.shiftId || undefined,
+         shiftId: form.shiftId || undefined,
+          reportsToId: form.reportsToId || undefined,
           teamId: form.teamId || undefined,
           dateOfJoining: form.dateOfJoining || undefined,
           skipOnboarding: form.skipOnboarding,
@@ -444,6 +464,7 @@ function PersonDrawer({
           designation: form.designation,
           employeeCode: form.employeeCode,
           shiftId: form.shiftId || null,
+          reportsToId: form.reportsToId || null,
           dateOfJoining: form.dateOfJoining || null,
           trackerAccessEnabled: form.trackerAccessEnabled,
         });
@@ -522,6 +543,23 @@ function PersonDrawer({
           <Input value={form.phone} onChange={(v) => set("phone", v)} />
         </Field>
       </div>
+
+           <Field
+        label="Reports to"
+        hint="Approves their tasks and sees their attendance. Leave blank for the company head."
+      >
+        <Select value={form.reportsToId} onChange={(v) => set("reportsToId", v)}>
+          <option value="">Nobody — top of the chain</option>
+          {options?.people
+            .filter((p) => p.id !== person?.id)
+            .map((p) => (
+                            <option key={p.id} value={p.id}>
+                {p.name}
+                {p.company ? ` — ${p.company}` : p.employeeCode ? ` (${p.employeeCode})` : ""}
+              </option>
+            ))}
+        </Select>
+      </Field>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Shift" hint="Late login is measured against this">

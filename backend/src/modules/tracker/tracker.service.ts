@@ -97,10 +97,7 @@ export async function recompute(sessionId: string) {
     );
   }
 
-  const productiveSeconds = Math.max(
-    0,
-    elapsed - breakSeconds - meetingSeconds
-  );
+  const productiveSeconds = Math.max(0, elapsed - breakSeconds - meetingSeconds);
 
   return prisma.workSession.update({
     where: { id: sessionId },
@@ -278,7 +275,7 @@ export async function startBreak(userId: string, breakType: string) {
   await prisma.trackerBreak.create({
     data: {
       workSessionId: session.id,
-      breakType: breakType as any,
+      breakType: breakType as never,
       startedAt: new Date(),
     },
   });
@@ -355,10 +352,7 @@ export async function inviteToMeeting(
       continue;
     }
     if (session.meetings.some((m) => m.approvalStatus === "PENDING")) {
-      skipped.push({
-        userId: employeeId,
-        reason: "Already has a pending invite",
-      });
+      skipped.push({ userId: employeeId, reason: "Already has a pending invite" });
       continue;
     }
     if (
@@ -373,7 +367,7 @@ export async function inviteToMeeting(
     await prisma.trackerMeeting.create({
       data: {
         workSessionId: session.id,
-        meetingType: meetingType as any,
+        meetingType: meetingType as never,
         title: title ?? null,
         approvalStatus: "PENDING",
         invitedById: managerId,
@@ -398,9 +392,7 @@ export async function listPendingInvites(userId: string) {
       meetings: {
         where: { approvalStatus: "PENDING" },
         include: {
-          invitedBy: {
-            select: { firstName: true, lastName: true, role: true },
-          },
+          invitedBy: { select: { firstName: true, lastName: true, role: true } },
         },
         orderBy: { requestedAt: "desc" },
       },
@@ -485,11 +477,60 @@ export async function endMeeting(userId: string) {
 
   return recompute(session.id);
 }
+
+// ---------------------------------------------------------------------------
+// WHO A MANAGER MAY SEE
+//
+// The teams they run, PLUS everyone who reports to them. The second list can
+// cross companies — one manager may run teams in Avatar and in Take Health.
+// HR and Admin see their own company.
+//
+// Shared by Live Team and the alerts panel so the two can never disagree
+// about who is on screen.
+// ---------------------------------------------------------------------------
+async function visibleUserIds(viewer: {
+  id: string;
+  role: string;
+  platformId: string;
+}): Promise<string[]> {
+  if (viewer.role !== "MANAGER") {
+    const everyone = await prisma.user.findMany({
+      where: {
+        platformId: viewer.platformId,
+        status: { in: ["ACTIVE", "INVITED"] },
+      },
+      select: { id: true },
+    });
+    return everyone.map((u) => u.id);
+  }
+
+  const [managedTeams, reports] = await Promise.all([
+    prisma.team.findMany({
+      where: { managerId: viewer.id, isActive: true },
+      select: { members: { where: { isActive: true }, select: { userId: true } } },
+    }),
+    prisma.user.findMany({
+      where: { reportsToId: viewer.id },
+      select: { id: true },
+    }),
+  ]);
+
+  return Array.from(
+    new Set([
+      ...managedTeams.flatMap((t) => t.members.map((m) => m.userId)),
+      ...reports.map((r) => r.id),
+    ])
+  );
+}
+
 // ---------------------------------------------------------------------------
 // LIVE TEAM
-// A manager sees their own teams; HR and Admin see the whole platform.
 // Totals are adjusted on read using updatedAt (the last recompute) so the
 // view is live without writing to the database on every poll.
+//
+// People are queried directly rather than by walking teams, so someone in two
+// teams appears once with no dedupe pass, and a direct report who isn't in
+// any team yet still shows up.
 // ---------------------------------------------------------------------------
 export async function getTeamLiveStatus(viewerId: string) {
   const viewer = await prisma.user.findUnique({
@@ -502,100 +543,95 @@ export async function getTeamLiveStatus(viewerId: string) {
     throw new Error("NOT_ALLOWED");
   }
 
-  const timezone = viewer.platform.timezone;
-  const date = platformToday(timezone);
+  // NOTE: "today" is the VIEWER's company day. Identical while every company
+  // is Asia/Kolkata; a company in another timezone would need this per person.
+  const date = platformToday(viewer.platform.timezone);
 
-  const teams = await prisma.team.findMany({
-    where:
-      viewer.role === "MANAGER"
-        ? { managerId: viewerId, isActive: true }
-        : { platformId: viewer.platformId, isActive: true },
-    include: {
-      config: true,
-      members: { where: { isActive: true }, include: { user: true } },
-    },
-  });
+  const userIds = await visibleUserIds(viewer);
+  if (userIds.length === 0) return [];
 
-  const userIds = teams.flatMap((t) => t.members.map((m) => m.userId));
-
-  const sessions = await prisma.workSession.findMany({
-    where: { userId: { in: userIds }, date },
-    include: { breaks: true, meetings: true },
-  });
-
-  const leaveDays = await prisma.leaveDay.findMany({
-    where: { userId: { in: userIds }, date },
-  });
+  const [people, sessions, leaveDays] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        designation: true,
+        platform: { select: { name: true } },
+        teamMemberships: {
+          where: { isActive: true },
+          select: { team: { select: { name: true, config: true } } },
+          take: 1,
+        },
+      },
+      orderBy: [{ firstName: "asc" }],
+    }),
+    prisma.workSession.findMany({
+      where: { userId: { in: userIds }, date },
+      include: { breaks: true, meetings: true },
+    }),
+    prisma.leaveDay.findMany({
+      where: { userId: { in: userIds }, date },
+    }),
+  ]);
 
   const byUser = new Map(sessions.map((s) => [s.userId, s]));
   const onLeave = new Set(leaveDays.map((l) => l.userId));
   const now = Date.now();
 
-  const rows = teams.flatMap((team) =>
-    team.members.map((member) => {
-      const s = byUser.get(member.userId) ?? null;
+  return people.map((person) => {
+    const s = byUser.get(person.id) ?? null;
+    const team = person.teamMemberships[0]?.team ?? null;
 
-      const openBreak = s?.breaks.find((b) => !b.endedAt) ?? null;
-      const openMeeting =
-        s?.meetings.find(
-          (m) => m.approvalStatus === "APPROVED" && m.startedAt && !m.endedAt
-        ) ?? null;
-      const pendingInvite =
-        s?.meetings.some((m) => m.approvalStatus === "PENDING") ?? false;
+    const openBreak = s?.breaks.find((b) => !b.endedAt) ?? null;
+    const openMeeting =
+      s?.meetings.find(
+        (m) => m.approvalStatus === "APPROVED" && m.startedAt && !m.endedAt
+      ) ?? null;
+    const pendingInvite =
+      s?.meetings.some((m) => m.approvalStatus === "PENDING") ?? false;
 
-      let status: string;
-      if (onLeave.has(member.userId)) status = "ON_LEAVE";
-      else if (!s) status = "NOT_CLOCKED_IN";
-      else if (s.status === "COMPLETED") status = "DONE";
-      else if (openBreak) status = "ON_BREAK";
-      else if (openMeeting) status = "IN_MEETING";
-      else status = "WORKING";
+    let status: string;
+    if (onLeave.has(person.id)) status = "ON_LEAVE";
+    else if (!s) status = "NOT_CLOCKED_IN";
+    else if (s.status === "COMPLETED") status = "DONE";
+    else if (openBreak) status = "ON_BREAK";
+    else if (openMeeting) status = "IN_MEETING";
+    else status = "WORKING";
 
-      let productiveSeconds = s?.productiveSeconds ?? 0;
-      let breakSeconds = s?.breakSeconds ?? 0;
-      let meetingSeconds = s?.meetingSeconds ?? 0;
+    let productiveSeconds = s?.productiveSeconds ?? 0;
+    let breakSeconds = s?.breakSeconds ?? 0;
+    let meetingSeconds = s?.meetingSeconds ?? 0;
 
-      if (s && s.status === "ACTIVE") {
-        const since = Math.max(
-          0,
-          Math.floor((now - s.updatedAt.getTime()) / 1000)
-        );
-        if (openBreak) breakSeconds += since;
-        else if (openMeeting) meetingSeconds += since;
-        else productiveSeconds += since;
-      }
+    if (s && s.status === "ACTIVE") {
+      const since = Math.max(0, Math.floor((now - s.updatedAt.getTime()) / 1000));
+      if (openBreak) breakSeconds += since;
+      else if (openMeeting) meetingSeconds += since;
+      else productiveSeconds += since;
+    }
 
-      return {
-        userId: member.userId,
-        name: `${member.user.firstName} ${member.user.lastName}`,
-        employeeCode: member.user.employeeCode,
-        designation: member.user.designation,
-        teamName: team.name,
-        status,
-        pendingInvite,
-        breakType: openBreak?.breakType ?? null,
-        loginAt: s?.loginAt ?? null,
-        wasLateLogin: s?.wasLateLogin ?? false,
-        lateByMinutes: s?.lateByMinutes ?? 0,
-        productiveSeconds,
-        breakSeconds,
-        meetingSeconds,
-        productiveTarget: (team.config?.productiveHours ?? 8) * 3600,
-        breakBudget: (team.config?.breakBudgetMinutes ?? 60) * 60,
-      };
-    })
-  );
-
-  // Someone in two teams would otherwise appear twice. Keep the first.
-  const seen = new Set<string>();
-  const unique = rows.filter((r) => {
-    if (seen.has(r.userId)) return false;
-    seen.add(r.userId);
-    return true;
+    return {
+      userId: person.id,
+      name: `${person.firstName} ${person.lastName}`,
+      employeeCode: person.employeeCode,
+      designation: person.designation,
+      teamName: team?.name ?? "—",
+      company: person.platform?.name ?? null,
+      status,
+      pendingInvite,
+      breakType: openBreak?.breakType ?? null,
+      loginAt: s?.loginAt ?? null,
+      wasLateLogin: s?.wasLateLogin ?? false,
+      lateByMinutes: s?.lateByMinutes ?? 0,
+      productiveSeconds,
+      breakSeconds,
+      meetingSeconds,
+      productiveTarget: (team?.config?.productiveHours ?? 8) * 3600,
+      breakBudget: (team?.config?.breakBudgetMinutes ?? 60) * 60,
+    };
   });
-
-  unique.sort((a, b) => a.name.localeCompare(b.name));
-  return unique;
 }
 
 // ---------------------------------------------------------------------------
@@ -611,11 +647,15 @@ const TASK_WEIGHTS: Record<string, number> = {
   CRITICAL: 5,
 };
 
-export async function getHistory(
-  userId: string,
-  fromStr?: string,
-  toStr?: string
-) {
+// Same scale the Daily Tasks page uses, so a day's score reads identically
+// in both places.
+const OUTCOME_MULTIPLIER: Record<string, number> = {
+  COMPLETED: 1,
+  PARTIALLY_COMPLETED: 0.5,
+  FAILED: 0,
+};
+
+export async function getHistory(userId: string, fromStr?: string, toStr?: string) {
   const ctx = await getContext(userId);
   const today = platformToday(ctx.timezone);
 
@@ -651,15 +691,23 @@ export async function getHistory(
 
   const rows = sessions.map((s) => {
     const k = key(s.date);
-    const dayTasks = tasksByDate.get(k) ?? [];
+    // Only approved work counts — a proposal the manager never agreed to
+    // was never work.
+    const dayTasks = (tasksByDate.get(k) ?? []).filter(
+      (t) => String(t.approvalStatus) === "APPROVED"
+    );
 
     const totalWeight = dayTasks.reduce(
       (n, t) => n + (TASK_WEIGHTS[t.weight] ?? 1),
       0
     );
-    const doneWeight = dayTasks
-      .filter((t) => t.status === "COMPLETED")
-      .reduce((n, t) => n + (TASK_WEIGHTS[t.weight] ?? 1), 0);
+
+    const doneWeight = dayTasks.reduce((n, t) => {
+      const w = TASK_WEIGHTS[t.weight] ?? 1;
+      if (t.outcome) return n + w * (OUTCOME_MULTIPLIER[String(t.outcome)] ?? 0);
+      if (String(t.status) === "COMPLETED") return n + w;
+      return n;
+    }, 0);
 
     return {
       date: k,
@@ -670,15 +718,16 @@ export async function getHistory(
       breakSeconds: s.breakSeconds,
       meetingSeconds: s.meetingSeconds,
       breakCount: s.breaks.length,
-      meetingCount: s.meetings.filter((m) => m.approvalStatus === "APPROVED")
-        .length,
+      meetingCount: s.meetings.filter((m) => m.approvalStatus === "APPROVED").length,
       wasLateLogin: s.wasLateLogin,
       lateByMinutes: s.lateByMinutes,
       autoClosed: s.autoClosed,
       onLeave: leaveByDate.has(k),
       leaveType: leaveByDate.get(k)?.leaveType ?? null,
       taskTotal: dayTasks.length,
-      taskDone: dayTasks.filter((t) => t.status === "COMPLETED").length,
+      taskDone: dayTasks.filter(
+        (t) => String(t.status) === "COMPLETED" || String(t.outcome) === "COMPLETED"
+      ).length,
       taskPercent:
         totalWeight === 0 ? null : Math.round((doneWeight / totalWeight) * 100),
     };
@@ -711,10 +760,12 @@ export async function getHistory(
         : null,
     },
   };
-}   
+}
 
 // ---------------------------------------------------------------------------
 // ALERTS for the manager view. Only today's, only unacknowledged.
+// Uses the same visibility rule as Live Team, so the alert panel and the
+// table below it always talk about the same people.
 // ---------------------------------------------------------------------------
 export async function listTeamAlerts(viewerId: string) {
   const viewer = await prisma.user.findUnique({
@@ -727,18 +778,8 @@ export async function listTeamAlerts(viewerId: string) {
   }
 
   const today = platformToday(viewer.platform.timezone);
-
-  const teams = await prisma.team.findMany({
-    where:
-      viewer.role === "MANAGER"
-        ? { managerId: viewerId, isActive: true }
-        : { platformId: viewer.platformId, isActive: true },
-    include: { members: { where: { isActive: true }, select: { userId: true } } },
-  });
-
-  const userIds = [
-    ...new Set(teams.flatMap((t) => t.members.map((m) => m.userId))),
-  ];
+  const userIds = await visibleUserIds(viewer);
+  if (userIds.length === 0) return [];
 
   const alerts = await prisma.alert.findMany({
     where: { userId: { in: userIds }, date: today, acknowledgedAt: null },
@@ -766,8 +807,12 @@ export async function acknowledgeAlert(viewerId: string, alertId: string) {
 
   const alert = await prisma.alert.findUnique({ where: { id: alertId } });
   if (!alert) throw new Error("ALERT_NOT_FOUND");
-  // Same platform only — a manager cannot clear another company's alerts.
-  if (alert.platformId !== viewer.platformId) throw new Error("NOT_ALLOWED");
+
+  // You may clear an alert for anyone you can see — which now includes a
+  // direct report in another company. Checking platform alone would stop a
+  // cross-company manager clearing their own person's alert.
+  const userIds = await visibleUserIds(viewer);
+  if (!userIds.includes(alert.userId)) throw new Error("NOT_ALLOWED");
 
   await prisma.alert.update({
     where: { id: alertId },

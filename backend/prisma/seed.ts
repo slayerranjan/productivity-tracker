@@ -128,7 +128,8 @@ async function main() {
     },
   ];
 
-  let managerId: string | null = null;
+    let managerId: string | null = null;
+  const createdIds = new Map<string, string>();
 
   for (const p of people) {
     const passwordHash = await bcrypt.hash(p.password, 10);
@@ -155,7 +156,7 @@ async function main() {
     });
 
     if (p.role === "MANAGER") managerId = user.id;
-
+    createdIds.set(p.email, user.id);
     await prisma.teamMember.upsert({
       where: { teamId_userId: { teamId: team.id, userId: user.id } },
       update: { isActive: true },
@@ -172,6 +173,24 @@ async function main() {
     });
     console.log("  manager assigned to team");
   }
+
+    // --- Reporting lines -----------------------------------------------------
+  // Priya and Rahul report to Neha. Neha reports to the admin, who stands in
+  // for the company head and reports to nobody.
+  const adminId = createdIds.get("admin@avatarindia.com")!;
+  const nehaId = createdIds.get("manager@avatarindia.com")!;
+
+  for (const [email, bossId] of [
+    ["priya@avatarindia.com", nehaId],
+    ["rahul@avatarindia.com", nehaId],
+    ["manager@avatarindia.com", adminId],
+  ] as const) {
+    await prisma.user.update({
+      where: { id: createdIds.get(email)! },
+      data: { reportsToId: bossId },
+    });
+  }
+  console.log("  reporting lines set");
 
   console.log("\nSeed complete.\n");
   console.log("  admin@avatarindia.com    Admin@12345");

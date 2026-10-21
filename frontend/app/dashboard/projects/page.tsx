@@ -1,0 +1,459 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost } from "@/lib/api";
+import { useMe } from "../layout";
+
+// ---------------------------------------------------------------------------
+// PROJECTS
+// HR puts people on projects; the manager comes along automatically because
+// the project already has one. Moving someone moves who approves their work.
+// ---------------------------------------------------------------------------
+
+type Member = {
+  id: string;
+  name: string;
+  employeeCode: string | null;
+  designation: string | null;
+  status: string;
+  isPrimary: boolean;
+};
+
+type Project = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  companyId: string;
+  company: string | null;
+  managerId: string | null;
+  manager: string | null;
+  members: Member[];
+};
+
+type Person = {
+  id: string;
+  name: string;
+  employeeCode: string | null;
+  designation: string | null;
+  company: string | null;
+};
+
+type Data = {
+  canManage: boolean;
+  companies: { id: string; name: string }[];
+  assignable: Person[];
+  projects: Project[];
+};
+
+const MESSAGES: Record<string, string> = {
+  NAME_REQUIRED: "Give the project a name.",
+  PROJECT_EXISTS: "That company already has a project with this name.",
+  NOT_YOUR_COMPANY: "You can't manage that company.",
+  NOT_ALLOWED: "Only HR and Admin can change projects.",
+  NOT_A_MEMBER: "They're not on that project.",
+  USER_REQUIRED: "Pick somebody first.",
+};
+
+const say = (err: unknown) => {
+  const code = err instanceof Error ? err.message : "UNKNOWN";
+  return MESSAGES[code] ?? "Something went wrong.";
+};
+
+export default function ProjectsPage() {
+  const me = useMe();
+
+  const [data, setData] = useState<Data | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [adding, setAdding] = useState("");
+
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ name: "", companyId: "", managerId: "" });
+
+  const load = useCallback(async () => {
+    try {
+      const res = await apiGet<Data>("/projects");
+      setData(res);
+      setError("");
+    } catch (err) {
+      setError(say(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function run(fn: () => Promise<Data>, message: string) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      setData(await fn());
+      setNotice(message);
+    } catch (err) {
+      setError(say(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const byCompany = useMemo(() => {
+    const map = new Map<string, Project[]>();
+    for (const p of data?.projects ?? []) {
+      const key = p.company ?? "No company";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(p);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [data]);
+
+  if (!me) return null;
+
+  const canManage = data?.canManage ?? false;
+  const totalPeople = new Set(
+    (data?.projects ?? []).flatMap((p) => p.members.map((m) => m.id))
+  ).size;
+
+  return (
+    <div className="p-8 max-w-5xl">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm text-slate-400">Setup</p>
+          <h1 className="mt-0.5 text-2xl font-semibold text-slate-900">
+            Projects
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">
+            Each project has one manager. Put someone on a project and that
+            manager approves their work — no second step.
+          </p>
+        </div>
+        {canManage && (
+          <button
+            onClick={() => {
+              setCreating((v) => !v);
+              setForm({
+                name: "",
+                companyId: data?.companies[0]?.id ?? "",
+                managerId: "",
+              });
+            }}
+            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            {creating ? "Cancel" : "New project"}
+          </button>
+        )}
+      </header>
+
+      <div className="mb-6 flex flex-wrap gap-2">
+        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+          {data?.projects.length ?? 0} projects
+        </span>
+        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+          {byCompany.length} companies
+        </span>
+        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+          {totalPeople} people assigned
+        </span>
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          {notice}
+        </div>
+      )}
+
+      {creating && canManage && (
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5">
+          <h2 className="mb-4 text-sm font-medium text-slate-900">
+            New project
+          </h2>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-48 flex-1">
+              <label className="mb-1.5 block text-xs text-slate-500">
+                Project name
+              </label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Sales CRM, AI Tools, e-Sports…"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs text-slate-500">
+                Company
+              </label>
+              <select
+                value={form.companyId}
+                onChange={(e) => setForm({ ...form, companyId: e.target.value })}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+              >
+                {(data?.companies ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs text-slate-500">
+                Manager
+              </label>
+              <select
+                value={form.managerId}
+                onChange={(e) => setForm({ ...form, managerId: e.target.value })}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+              >
+                <option value="">Decide later</option>
+                {(data?.assignable ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.employeeCode ? `(${p.employeeCode})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              disabled={busy || form.name.trim() === ""}
+              onClick={() =>
+                run(
+                  () =>
+                    apiPost<Data>("/projects", {
+                      name: form.name.trim(),
+                      companyId: form.companyId,
+                      managerId: form.managerId || null,
+                    }),
+                  `Created ${form.name.trim()}.`
+                ).then(() => {
+                  setCreating(false);
+                  setForm({ name: "", companyId: "", managerId: "" });
+                })
+              }
+              className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            >
+              Create
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-slate-400">
+            Naming someone as manager gives them the Manager role if they
+            don&apos;t already have it — otherwise they&apos;d run a project
+            with no Approvals screen.
+          </p>
+        </section>
+      )}
+
+      {byCompany.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center">
+          <p className="text-sm text-slate-500">No projects yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {byCompany.map(([company, list]) => (
+            <div key={company}>
+              <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {company}
+              </h2>
+
+              <div className="space-y-3">
+                {list.map((p) => {
+                  const open = openId === p.id;
+                  const already = new Set(p.members.map((m) => m.id));
+                  const options = (data?.assignable ?? []).filter(
+                    (a) => !already.has(a.id)
+                  );
+
+                  return (
+                    <section
+                      key={p.id}
+                      className={`overflow-hidden rounded-2xl border bg-white ${
+                        p.isActive ? "border-slate-200" : "border-slate-200 opacity-60"
+                      }`}
+                    >
+                      <button
+                        onClick={() => setOpenId(open ? null : p.id)}
+                        className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50/60"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-slate-900">{p.name}</p>
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            {p.manager
+                              ? `Managed by ${p.manager}`
+                              : "No manager — nobody approves this work"}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                          {p.members.length}{" "}
+                          {p.members.length === 1 ? "person" : "people"}
+                        </span>
+                        <svg
+                          viewBox="0 0 20 20"
+                          className={`h-4 w-4 shrink-0 text-slate-400 ${
+                            open ? "rotate-180" : ""
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path d="m5 8 5 5 5-5" strokeLinecap="round" />
+                        </svg>
+                      </button>
+
+                      {open && (
+                        <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
+                          {!p.manager && canManage && (
+                            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              Set a manager below — until then, tasks on this
+                              project have nobody to approve them.
+                            </div>
+                          )}
+
+                          {canManage && (
+                            <div className="mb-4 flex flex-wrap items-end gap-2">
+                              <div className="min-w-56 flex-1">
+                                <label className="mb-1.5 block text-xs text-slate-500">
+                                  Add someone
+                                </label>
+                                <select
+                                  value={openId === p.id ? adding : ""}
+                                  onChange={(e) => setAdding(e.target.value)}
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                                >
+                                  <option value="">Choose a person…</option>
+                                  {options.map((o) => (
+                                    <option key={o.id} value={o.id}>
+                                      {o.name}
+                                      {o.employeeCode ? ` · ${o.employeeCode}` : ""}
+                                      {o.company ? ` · ${o.company}` : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <button
+                                disabled={busy || !adding}
+                                onClick={() =>
+                                  run(
+                                    () =>
+                                      apiPost<Data>(
+                                        `/projects/${p.id}/members`,
+                                        { userId: adding }
+                                      ),
+                                    "Added to the project."
+                                  ).then(() => setAdding(""))
+                                }
+                                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+                              >
+                                Add
+                              </button>
+                              <select
+                                value={p.managerId ?? ""}
+                                onChange={(e) =>
+                                  run(
+                                    () =>
+                                      apiPost<Data>("/projects", {
+                                        id: p.id,
+                                        name: p.name,
+                                        managerId: e.target.value || null,
+                                      }),
+                                    "Manager changed — their team follows."
+                                  )
+                                }
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                              >
+                                <option value="">No manager</option>
+                                {(data?.assignable ?? []).map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    Manager: {a.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {p.members.length === 0 ? (
+                            <p className="py-3 text-sm text-slate-500">
+                              Nobody on this project yet.
+                            </p>
+                          ) : (
+                            <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                              {p.members.map((m) => (
+                                <li
+                                  key={m.id}
+                                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-medium text-slate-900">
+                                        {m.name}
+                                      </p>
+                                      {m.isPrimary && (
+                                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
+                                          main project
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-slate-400">
+                                      {m.employeeCode ?? "—"}
+                                      {m.designation ? ` · ${m.designation}` : ""}
+                                    </p>
+                                  </div>
+
+                                  {canManage && (
+                                    <div className="flex shrink-0 gap-2">
+                                      {!m.isPrimary && (
+                                        <button
+                                          disabled={busy}
+                                          onClick={() =>
+                                            run(
+                                              () =>
+                                                apiPost<Data>(
+                                                  `/projects/${p.id}/members/${m.id}/primary`
+                                                ),
+                                              `${p.name} is now their main project.`
+                                            )
+                                          }
+                                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                                        >
+                                          Make main
+                                        </button>
+                                      )}
+                                      <button
+                                        disabled={busy}
+                                        onClick={() =>
+                                          run(
+                                            () =>
+                                              apiPost<Data>(
+                                                `/projects/${p.id}/members/${m.id}/remove`
+                                              ),
+                                            "Removed from the project."
+                                          )
+                                        }
+                                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:border-red-200 hover:text-red-600 disabled:opacity-40"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

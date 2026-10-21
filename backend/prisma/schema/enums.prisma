@@ -81,6 +81,22 @@ enum TaskStatus {
   CANCELLED
 }
 
+// A task is only real work once a manager has agreed to it.
+enum TaskApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// How it actually went, decided by the manager after the employee marks it
+// done. Separate from TaskStatus: status is where the task is, outcome is
+// what came of it.
+enum TaskOutcome {
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+}
+
 enum TaskWeight {
   LOW
   MEDIUM
@@ -179,6 +195,7 @@ enum AlertType {
   LOW_PRODUCTIVITY
   MEETING_PENDING_APPROVAL
   BIOMETRIC_MISMATCH
+  ONBOARDING_OVERDUE
 }
 
 enum AlertSeverity {

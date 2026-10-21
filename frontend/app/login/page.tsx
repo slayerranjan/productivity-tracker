@@ -75,24 +75,33 @@ export default function LoginPage() {
           onSubmit={handleSubmit}
           className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4"
         >
-          <div>
+                   <div>
             <label
               htmlFor="email"
               className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5"
             >
-              Email
+              Employee ID or email
             </label>
             <input
               id="email"
-              type="email"
+              // NOT type="email" — the browser would reject "AWL-01" before
+              // the form ever submits, and nobody in the group has a work
+              // email address. The server decides: anything containing "@"
+              // is treated as an email, anything else as an employee ID.
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
               autoComplete="username"
-              placeholder="you@avatarindia.com"
+              autoCapitalize="off"
+              spellCheck={false}
+              placeholder="AWL-01"
               className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
             />
+            <p className="mt-1.5 text-xs text-slate-400">
+              Use the employee ID your company issued you.
+            </p>
           </div>
 
           <div>

@@ -149,7 +149,8 @@ export async function listUsers(
       onboardingStatus: true,
       trackerAccessEnabled: true,
       lastLoginAt: true,
-      shift: { select: { id: true, name: true } },
+            shift: { select: { id: true, name: true } },
+      reportsTo: { select: { id: true, firstName: true, lastName: true } },
       teamMemberships: {
         where: { isActive: true },
         select: { team: { select: { id: true, name: true } } },
@@ -173,7 +174,13 @@ export async function listUsers(
     onboardingStatus: u.onboardingStatus,
     trackerAccessEnabled: u.trackerAccessEnabled,
     lastLoginAt: u.lastLoginAt,
-    shift: u.shift,
+        shift: u.shift,
+    reportsTo: u.reportsTo
+      ? {
+          id: u.reportsTo.id,
+          name: `${u.reportsTo.firstName} ${u.reportsTo.lastName}`.trim(),
+        }
+      : null,
     teams: u.teamMemberships.map((m) => m.team),
   }));
 }
@@ -189,8 +196,9 @@ export async function createUser(
     designation?: string;
     phone?: string;
     employeeCode?: string;
-    shiftId?: string;
+        shiftId?: string;
     teamId?: string;
+    reportsToId?: string;
     dateOfJoining?: string;
     skipOnboarding?: boolean;
   }
@@ -243,6 +251,7 @@ export async function createUser(
         designation: data.designation?.trim() || null,
         dateOfJoining: data.dateOfJoining ? parseDay(data.dateOfJoining) : null,
         shiftId: data.shiftId || null,
+        reportsToId: data.reportsToId || null,
         onboardingStatus: skip ? "ACTIVE" : "OFFER_SENT",
         trackerAccessEnabled: skip,
         accessGrantedAt: skip ? new Date() : null,
@@ -275,7 +284,8 @@ export async function updateUser(
     status?: string;
     designation?: string;
     employeeCode?: string;
-    shiftId?: string | null;
+        shiftId?: string | null;
+    reportsToId?: string | null;
     dateOfJoining?: string | null;
     onboardingStatus?: string;
     trackerAccessEnabled?: boolean;
@@ -313,9 +323,12 @@ export async function updateUser(
         ? { employeeCode: data.employeeCode?.trim() || null }
         : {}),
       ...(data.shiftId !== undefined ? { shiftId: data.shiftId || null } : {}),
-      ...(data.biometricId !== undefined
-        ? { biometricId: data.biometricId?.trim() || null }
+      ...(data.reportsToId !== undefined
+        ? { reportsToId: data.reportsToId || null }
         : {}),
+      ...(data.biometricId !== undefined
+      ? { biometricId: data.biometricId?.trim() || null }
+      : {}),
       ...(data.dateOfJoining !== undefined
         ? { dateOfJoining: data.dateOfJoining ? parseDay(data.dateOfJoining) : null }
         : {}),
@@ -798,8 +811,8 @@ export async function unmarkLeave(viewerId: string, userId: string, dateStr: str
 export async function getAdminOptions(viewerId: string) {
   const viewer = await actor(viewerId);
 
-  const [teams, shifts, managers] = await Promise.all([
-    prisma.team.findMany({
+    const [teams, shifts, managers, people] = await Promise.all([
+        prisma.team.findMany({
       where: { platformId: viewer.platformId, isActive: true },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
@@ -809,9 +822,31 @@ export async function getAdminOptions(viewerId: string) {
       select: { id: true, name: true, startTime: true, endTime: true, isDefault: true },
       orderBy: [{ isDefault: "desc" }, { name: "asc" }],
     }),
-    prisma.user.findMany({
+        prisma.user.findMany({
       where: { platformId: viewer.platformId, role: { in: ["MANAGER", "HR", "ADMIN"] } },
       select: { id: true, firstName: true, lastName: true, role: true },
+      orderBy: { firstName: "asc" },
+    }),
+    // Anyone can be someone's manager. A team lead may still be an EMPLOYEE
+    // by role, so this list is deliberately not filtered.
+        // Everyone in this company, plus managers from the others — a manager
+    // may run teams across companies, so a reporting line has to be able to
+    // point at someone outside your own.
+    prisma.user.findMany({
+      where: {
+        OR: [
+          { platformId: viewer.platformId },
+          { role: { in: ["MANAGER", "HR", "ADMIN"] } },
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        platformId: true,
+        platform: { select: { name: true } },
+      },
       orderBy: { firstName: "asc" },
     }),
   ]);
@@ -824,8 +859,13 @@ export async function getAdminOptions(viewerId: string) {
       name: `${m.firstName} ${m.lastName}`.trim(),
       role: m.role,
     })),
+    people: people.map((p) => ({
+      id: p.id,
+      name: `${p.firstName} ${p.lastName}`.trim(),
+      employeeCode: p.employeeCode,
+    })),
     roles: USER_ROLES,
-    statuses: USER_STATUSES,
+      statuses: USER_STATUSES,
     onboardingStatuses: ONBOARDING_STATUSES,
     teamTypes: TEAM_TYPES,
     leaveTypes: LEAVE_TYPES,
