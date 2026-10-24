@@ -27,6 +27,14 @@ const allowedOrigins = [
   "http://127.0.0.1:3000",
   "http://localhost:3001",
   "http://127.0.0.1:3001",
+  // Live addresses come from CORS_ORIGIN, comma-separated, so putting the
+  // app on a new domain is a setting change rather than a code change and a
+  // redeploy. Localhost stays listed so local work keeps running against
+  // whichever backend you point it at.
+  ...String(process.env.CORS_ORIGIN ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
 ];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 // Documents arrive as base64 inside the JSON body, so the default 100kb
