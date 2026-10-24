@@ -1,0 +1,25 @@
+// ===========================================================================
+// STORED BLOBS - uploaded file contents, kept in the database.
+//
+// Deliberately has NO relation back to Platform. A relation must be declared
+// at both ends in Prisma, and adding one here would mean editing core.prisma
+// too. platformId is kept as a plain column for filtering; nothing needs to
+// join from the other direction.
+// ===========================================================================
+
+model StoredBlob {
+  storageKey String @id
+
+  platformId String @db.Uuid
+  folder     String
+  mimeType   String
+  fileSize   Int
+
+  // The file itself. Postgres stores this as bytea.
+  data Bytes
+
+  createdAt DateTime @default(now())
+
+  @@index([platformId, folder])
+  @@map("stored_blobs")
+}

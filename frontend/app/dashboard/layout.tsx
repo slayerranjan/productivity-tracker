@@ -133,13 +133,22 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     ],
   },
   {
+    // Hiring is its own section, not part of Setup and not part of Approvals.
+    // Approvals means a manager clearing someone's daily tasks; this is HR
+    // clearing documents. Same word, different job, different people.
+    title: "Hiring",
+    items: [
+      { href: "/dashboard/candidates", label: "Joiners", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
+      { href: "/dashboard/offers", label: "Offer letters", ready: true, roles: ["HR", "ADMIN"], icon: I.payslip },
+    ],
+  },
+  {
     title: "Setup",
     items: [
       { href: "/dashboard/projects", label: "Projects", ready: true, roles: ["HR", "ADMIN"], icon: I.tasks },
      { href: "/dashboard/holidays", label: "Holidays", ready: true, roles: ["HR", "ADMIN"], icon: I.holidays },
       { href: "/dashboard/payroll", label: "Payroll", ready: true, roles: ["HR", "ADMIN"], icon: I.payroll },
       { href: "/dashboard/admin", label: "Admin", ready: true, roles: ["ADMIN", "HR"], icon: I.admin },
-      { href: "/dashboard/offers", label: "Offer letters", ready: true, roles: ["HR", "ADMIN"], icon: I.payslip },
     ],
   },
 ];
@@ -181,6 +190,13 @@ export default function DashboardLayout({
         // Nobody gets into the app on a password HR chose for them.
         if (m.mustChangePassword) {
           router.replace("/change-password");
+          return;
+        }
+        // Until HR has approved their papers there is no tracker to show. A
+        // locked clock reading 00:00:00 tells a new joiner nothing; the list
+        // of documents they owe tells them exactly what to do next.
+        if (!m.trackerAccessEnabled) {
+          router.replace("/onboarding");
           return;
         }
         setMe(m);

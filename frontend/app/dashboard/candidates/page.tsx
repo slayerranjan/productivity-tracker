@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, getToken } from "@/lib/api";
 import { useMe } from "../layout";
 import { ProgressBar } from "./ProgressBar";
 
@@ -99,8 +99,15 @@ export default function CandidatesPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await apiGet<Candidate[]>("/onboarding/candidates");
-      setRows(Array.isArray(res) ? res : []);
+      const res = await apiGet<unknown>("/onboarding/candidates");
+      // The endpoint wraps the list as { candidates: [...] }. Accepting the
+      // bare array as well means neither side can silently empty this screen
+      // by changing its mind about the wrapper - which is exactly what
+      // happened here, with no error raised on either side.
+      const list = Array.isArray(res)
+        ? res
+        : ((res as { candidates?: Candidate[] })?.candidates ?? []);
+      setRows(list as Candidate[]);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load candidates");
@@ -124,6 +131,7 @@ export default function CandidatesPage() {
       // Shape varies by endpoint version, so accept the obvious variants
       // rather than blanking the panel on a key I didn't predict.
       const list =
+        (res as { checklist?: Doc[] })?.checklist ??
         (res as { documents?: Doc[] })?.documents ??
         (res as { requirements?: Doc[] })?.requirements ??
         (Array.isArray(res) ? (res as Doc[]) : []);
@@ -135,6 +143,25 @@ export default function CandidatesPage() {
     }
   }
 
+  // A plain <a href> is a browser navigation, and browsers attach no login
+  // token to those - which is why View returned NOT_AUTHENTICATED. Fetching
+  // it ourselves with the token and opening the result keeps the file behind
+  // authentication instead of putting a token in the address bar.
+  async function viewDocument(docId: string) {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001/api";
+    try {
+      const res = await fetch(base + "/onboarding/documents/" + docId + "/file", {
+        headers: { Authorization: "Bearer " + (getToken() ?? "") },
+      });
+      if (!res.ok) throw new Error("Could not open that document");
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, "_blank", "noreferrer");
+      // Released after the new tab has had time to take it.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open that document");
+    }
+  }
   async function review(docId: string, approve: boolean, why?: string) {
     setBusy(true);
     setError("");
@@ -334,7 +361,7 @@ export default function CandidatesPage() {
                           const canReview = status === "SUBMITTED";
 
                           return (
-                            <li key={d.id} className="px-4 py-3">
+                            <li key={d.requirementId ?? d.id} className="px-4 py-3">
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
@@ -364,10 +391,7 @@ export default function CandidatesPage() {
                                 <div className="flex shrink-0 items-center gap-2">
                                   {d.fileName && (
                                     <a
-                                      href={`${
-                                        process.env.NEXT_PUBLIC_API_URL ??
-                                        "http://localhost:5001/api"
-                                      }/onboarding/documents/${d.id}/file`}
+                                      href="#" onClick={(e) => { e.preventDefault(); void viewDocument(d.id); }}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"

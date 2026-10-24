@@ -1,28 +1,27 @@
 // ===========================================================================
-// STORAGE — where uploaded documents actually live.
+// STORAGE - where uploaded documents actually live.
 //
-// This is deliberately an interface with one implementation. Today files go
-// to local disk, which is fine for a single server and loses everything on a
-// redeploy. Swapping in Cloudflare R2 or S3 means rewriting the three
-// functions at the bottom of this file and nothing else in the codebase.
+// Files are kept in the database rather than on disk. Not because a database
+// is the ideal place for binary data, but because the hosting disk is wiped
+// on every redeploy, and losing 53 people's Aadhaar and PAN cards to a
+// routine update is not a risk worth taking to save a table.
+//
+// Still an interface with one implementation: moving to Cloudflare R2 or S3
+// means rewriting the three functions at the bottom and nothing else.
 //
 // SECURITY
-// The storage key is built entirely by this module — a uuid plus an
-// extension derived from the MIME type we validated. The user's filename is
-// kept only as a label in the database and never appears in a path. That is
-// what makes "../../../.env" as a filename harmless.
+// The storage key is built entirely by this module - a uuid plus an extension
+// derived from the MIME type we validated. The user's filename is kept only
+// as a label in the database and never appears in a key. That is what makes
+// "../../../.env" as a filename harmless.
 // ===========================================================================
 
-import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
-
-// Override with UPLOAD_DIR in .env to put files outside the project.
-const ROOT = process.env.UPLOAD_DIR ?? path.join(process.cwd(), "uploads");
+import { prisma } from "./prisma.js";
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-// An allow-list, not a block-list. Anything not named here is refused —
+// An allow-list, not a block-list. Anything not named here is refused -
 // which is how you avoid someone uploading an .html file that later gets
 // served back and runs script in your users' browsers.
 const ALLOWED_TYPES: Record<string, string> = {
@@ -42,8 +41,6 @@ export type StoredFile = {
 };
 
 // A key looks like: <uuid>/<folder>/<uuid>.<ext>
-// Nothing else is ever accepted, so a key from the database cannot walk out
-// of the uploads directory.
 const KEY_PATTERN = /^[0-9a-f-]{36}\/[a-z-]{1,32}\/[0-9a-f-]{36}\.[a-z0-9]{1,5}$/i;
 
 function assertSafeKey(storageKey: string) {
@@ -58,7 +55,7 @@ function splitDataUrl(input: string): { mimeType?: string; base64: string } {
   return { base64: input };
 }
 
-// Keeps a readable label for the UI. Never used to build a path.
+// Keeps a readable label for the UI. Never used to build a key.
 function cleanLabel(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "file";
   return base.replace(/[^\w.\- ]/g, "_").slice(0, 120) || "file";
@@ -89,9 +86,16 @@ export async function saveUpload(opts: {
   const storageKey = `${opts.platformId}/${folder}/${randomUUID()}.${extension}`;
   assertSafeKey(storageKey);
 
-  const absolute = path.join(ROOT, storageKey);
-  await mkdir(path.dirname(absolute), { recursive: true });
-  await writeFile(absolute, buffer);
+  await prisma.storedBlob.create({
+    data: {
+      storageKey,
+      platformId: opts.platformId,
+      folder,
+      mimeType,
+      fileSize: buffer.length,
+      data: buffer,
+    },
+  });
 
   return {
     storageKey,
@@ -103,17 +107,20 @@ export async function saveUpload(opts: {
 
 export async function readStored(storageKey: string): Promise<Buffer> {
   assertSafeKey(storageKey);
-  try {
-    return await readFile(path.join(ROOT, storageKey));
-  } catch {
-    throw new Error("FILE_MISSING");
-  }
+
+  const blob = await prisma.storedBlob.findUnique({
+    where: { storageKey },
+    select: { data: true },
+  });
+  if (!blob) throw new Error("FILE_MISSING");
+
+  return Buffer.from(blob.data);
 }
 
 export async function deleteStored(storageKey: string): Promise<void> {
   assertSafeKey(storageKey);
   try {
-    await unlink(path.join(ROOT, storageKey));
+    await prisma.storedBlob.delete({ where: { storageKey } });
   } catch {
     // Already gone is the desired end state, so this is not an error.
   }

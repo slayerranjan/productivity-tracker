@@ -1,4 +1,4 @@
-﻿// ===========================================================================
+// ===========================================================================
 // ONBOARDING â€” the path from "HR created an employee ID" to "tracker unlocked"
 //
 // THE STAGE MACHINE
@@ -21,6 +21,7 @@
 
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
+import { viewerIsOwner } from "../../lib/owner.js";
 import { saveUpload, readStored, deleteStored, contentTypeFor } from "../../lib/storage.js";
 
 const BCRYPT_COST = 10;
@@ -201,9 +202,12 @@ export async function recomputeOnboarding(userId: string) {
             status: "ACTIVE" as const,
             trackerAccessEnabled: true,
             accessGrantedAt: new Date(),
-            // They log in next with the password HR chose, and cannot go
-            // anywhere until they replace it.
-            mustChangePassword: true,
+            // Deliberately NOT forcing another password change here. By this
+            // point the joiner has already replaced the password HR gave them,
+            // on their very first login. Forcing a second change at activation
+            // would bounce every new employee to a password screen on the day
+            // they finally get access, for a password only they know.
+
           }
         : {}),
     },
@@ -312,14 +316,35 @@ export async function createHire(
 // HR â€” the candidate pipeline
 // ===========================================================================
 
+// An owner hires into every company, so they must be able to open a joiner
+// outside their own. Everyone else stays locked to their platform exactly as
+// before - this widens the door for one account, it does not remove it.
+async function samePlatformOrOwner(
+  viewerId: string,
+  platformId: string,
+  userId: string
+) {
+  if (await viewerIsOwner(viewerId)) {
+    const exists = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!exists) throw new Error("NOT_FOUND");
+    return;
+  }
+  await samePlatformUser(platformId, userId);
+}
 export async function listCandidates(viewerId: string) {
   const viewer = await actor(viewerId);
   assertStaff(String(viewer.role));
 
+  // An owner hires into every company, so their Joiners list must span them.
+  const owner = await viewerIsOwner(viewerId);
+
   const [candidates, requirements, config] = await Promise.all([
     prisma.user.findMany({
       where: {
-        platformId: viewer.platformId,
+        ...(owner ? {} : { platformId: viewer.platformId }),
         onboardingStatus: { not: "ACTIVE" },
       },
       select: {
@@ -334,6 +359,8 @@ export async function listCandidates(viewerId: string) {
         documentsSubmittedAt: true,
         dateOfJoining: true,
         createdAt: true,
+        platformId: true,
+        platform: { select: { name: true } },
         documents: {
           select: {
             id: true,
@@ -349,9 +376,10 @@ export async function listCandidates(viewerId: string) {
       orderBy: [{ createdAt: "desc" }],
     }),
     prisma.documentRequirement.findMany({
-      where: { platformId: viewer.platformId, isActive: true },
+      where: { ...(owner ? {} : { platformId: viewer.platformId }), isActive: true },
       select: {
         id: true,
+        platformId: true,
         label: true,
         category: true,
         isMandatory: true,
@@ -370,11 +398,21 @@ export async function listCandidates(viewerId: string) {
   // The checklist covers only what the joiner owes us. Papers HR uploads
   // (contract, resume) are not their responsibility and must never drag
   // their percentage down.
-  const ownRequirements = requirements.filter((r) => r.uploadedByEmployee);
-  const mandatory = ownRequirements.filter((r) => r.isMandatory);
-  const mandatoryCount = mandatory.length;
+  // Requirements belong to a company, so they are grouped by one rather than
+  // assumed to be a single list. An owner sees candidates from several
+  // companies side by side, and each must be measured against their own.
+  const requirementsByPlatform = new Map<string, typeof requirements>();
+  for (const r of requirements) {
+    const list = requirementsByPlatform.get(r.platformId) ?? [];
+    list.push(r);
+    requirementsByPlatform.set(r.platformId, list);
+  }
 
   return candidates.map((c) => {
+    const forThisCompany = requirementsByPlatform.get(c.platformId) ?? [];
+    const ownRequirements = forThisCompany.filter((r) => r.uploadedByEmployee);
+    const mandatory = ownRequirements.filter((r) => r.isMandatory);
+    const mandatoryCount = mandatory.length;
     const byRequirement = new Map(
       c.documents
         .filter((d) => d.requirementId)
@@ -432,6 +470,7 @@ export async function listCandidates(viewerId: string) {
       name: `${c.firstName} ${c.lastName}`.trim(),
       email: c.email,
       employeeCode: c.employeeCode,
+      company: c.platform?.name ?? null,
       designation: c.designation,
       status: c.status,
       onboardingStatus: c.onboardingStatus,
@@ -458,8 +497,19 @@ export async function listCandidates(viewerId: string) {
 export async function getCandidate(viewerId: string, userId: string) {
   const viewer = await actor(viewerId);
   assertStaff(String(viewer.role));
-  await samePlatformUser(viewer.platformId, userId);
-  await ensureRequirements(viewer.platformId);
+  await samePlatformOrOwner(viewerId, viewer.platformId, userId);
+
+  // The checklist belongs to the CANDIDATE's company, not the viewer's. An
+  // owner opening a joiner in another company was being shown their own
+  // company's requirements, which match none of the uploaded documents - so
+  // every row read "not uploaded" while the files sat there.
+  const subject = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformId: true },
+  });
+  if (!subject) throw new Error("NOT_FOUND");
+
+  await ensureRequirements(subject.platformId);
 
   const [user, requirements, documents] = await Promise.all([
     prisma.user.findUnique({
@@ -480,7 +530,7 @@ export async function getCandidate(viewerId: string, userId: string) {
       },
     }),
     prisma.documentRequirement.findMany({
-      where: { platformId: viewer.platformId, isActive: true },
+      where: { platformId: subject.platformId, isActive: true },
       orderBy: { sortOrder: "asc" },
     }),
     prisma.employeeDocument.findMany({
@@ -504,6 +554,18 @@ export async function getCandidate(viewerId: string, userId: string) {
         category: r.category,
         isMandatory: r.isMandatory,
         uploadedByEmployee: r.uploadedByEmployee,
+        // Flattened beside the nested object on purpose. The screen reads
+        // these directly; anything already using `document` keeps working.
+        // Two shapes for the same data is cheaper than a screen that silently
+        // shows "requested" for documents that are sitting right there.
+        id: doc?.id ?? null,
+        documentId: doc?.id ?? null,
+        status: doc ? String(doc.status) : "REQUESTED",
+        fileName: doc?.fileName ?? null,
+        fileSize: doc?.fileSize ?? null,
+        uploadedAt: doc?.uploadedAt ?? null,
+        reviewedAt: doc?.reviewedAt ?? null,
+        rejectionReason: doc?.rejectionReason ?? null,
         document: doc
           ? {
               id: doc.id,
@@ -684,7 +746,12 @@ export async function reviewDocument(
     where: { id: documentId },
     select: { id: true, platformId: true, userId: true },
   });
-  if (!doc || doc.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
+  if (!doc) throw new Error("NOT_FOUND");
+  // An owner reviews documents in every company; everyone else stays locked
+  // to their own.
+  if (doc.platformId !== viewer.platformId && !(await viewerIsOwner(viewerId))) {
+    throw new Error("NOT_FOUND");
+  }
 
   if (!approve && !rejectionReason?.trim()) throw new Error("REASON_REQUIRED");
 
@@ -711,7 +778,7 @@ export async function uploadForCandidate(
 ) {
   const viewer = await actor(viewerId);
   assertStaff(String(viewer.role));
-  await samePlatformUser(viewer.platformId, userId);
+  await samePlatformOrOwner(viewerId, viewer.platformId, userId);
 
   const requirement = await prisma.documentRequirement.findUnique({
     where: { id: data.requirementId },
@@ -788,7 +855,12 @@ export async function downloadDocument(viewerId: string, documentId: string) {
       mimeType: true,
     },
   });
-  if (!doc || doc.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
+  if (!doc) throw new Error("NOT_FOUND");
+  // An owner reviews documents in every company; everyone else stays locked
+  // to their own.
+  if (doc.platformId !== viewer.platformId && !(await viewerIsOwner(viewerId))) {
+    throw new Error("NOT_FOUND");
+  }
 
   // The owner, HR and Admin. Nobody else, including the person's manager â€”
   // a manager has no business reading someone's Aadhaar.

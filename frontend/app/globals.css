@@ -80,20 +80,28 @@ input[type="time"] {
   outline: none;
 }
 
-/* Form controls shouldn't look like 1998 */
-input,
-select,
-textarea,
-button {
-  font: inherit;
-  color: inherit;
-}
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--brand-500);
-  box-shadow: 0 0 0 3px var(--ring);
+/* Form controls shouldn't look like 1998.
+
+   This sits inside @layer base deliberately. Tailwind v4 puts its utilities
+   in a layer, and plain CSS written outside any layer beats layered CSS no
+   matter the specificity. Unlayered, `button { color: inherit }` overrode
+   text-white on every button in the app - dark text on a dark button, so
+   every label was invisible. Inside the layer, any utility wins again. */
+@layer base {
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: var(--brand-500);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
 }
 select {
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2394a3b8' d='M1.4 0 6 4.6 10.6 0 12 1.4 6 7.4 0 1.4z'/%3E%3C/svg%3E");

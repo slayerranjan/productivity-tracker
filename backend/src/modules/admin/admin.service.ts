@@ -1,5 +1,5 @@
 // ===========================================================================
-// ADMIN — people, teams, shifts, thresholds, leave
+// ADMIN â€” people, teams, shifts, thresholds, leave
 //
 // TENANCY
 // Every function starts with actor(viewerId), which reads platformId off the
@@ -9,13 +9,15 @@
 //
 // ENUM VALUES
 // The literal unions below are copied from prisma/schema/enums.prisma. They
-// are not imported from the generated client on purpose — these arrays also
+// are not imported from the generated client on purpose â€” these arrays also
 // drive validation and the UI dropdowns, so one list serves three jobs and
 // TypeScript still rejects a value that isn't in the schema.
 // ===========================================================================
 
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
+import { viewerIsOwner } from "../../lib/owner.js";
+import { sendWelcome } from "../onboarding/onboarding.mail.js";
 
 export const USER_ROLES = ["EMPLOYEE", "MANAGER", "HR", "ADMIN"] as const;
 export const USER_STATUSES = ["CANDIDATE", "INVITED", "ACTIVE", "SUSPENDED", "EXITED"] as const;
@@ -119,9 +121,13 @@ export async function listUsers(
   const role = USER_ROLES.find((r) => r === filters.role);
   const status = USER_STATUSES.find((s) => s === filters.status);
 
+  // An owner runs every company, so the list must not stop at their own -
+  // otherwise someone they just created into Aayush simply vanishes.
+  const owner = await viewerIsOwner(viewerId);
+
   const users = await prisma.user.findMany({
     where: {
-      platformId: viewer.platformId,
+      ...(owner ? {} : { platformId: viewer.platformId }),
       ...(role ? { role } : {}),
       ...(status ? { status } : {}),
       ...(search
@@ -151,6 +157,7 @@ export async function listUsers(
       lastLoginAt: true,
             shift: { select: { id: true, name: true } },
       reportsTo: { select: { id: true, firstName: true, lastName: true } },
+      platform: { select: { name: true } },
       teamMemberships: {
         where: { isActive: true },
         select: { team: { select: { id: true, name: true } } },
@@ -182,6 +189,7 @@ export async function listUsers(
         }
       : null,
     teams: u.teamMemberships.map((m) => m.team),
+    company: u.platform?.name ?? null,
   }));
 }
 
@@ -213,33 +221,58 @@ export async function createUser(
 
   const role = USER_ROLES.find((r) => r === data.role) ?? "EMPLOYEE";
 
-  // Uniqueness is per platform, not global — the same person can legitimately
+  // Uniqueness is per platform, not global â€” the same person can legitimately
   // exist in Avatar and in Take Health with the same address.
+  // An owner may create people into any company, and the TEAM decides which
+  // one. Creating a TC Software person onto an Aayush team would leave every
+  // report disagreeing with every other. With no team, it is the viewer's own
+  // company, exactly as before.
+  const owner = await viewerIsOwner(viewerId);
+
+  let targetPlatformId = viewer.platformId;
+  let codePrefix: string | null = viewer.platform.employeeCodePrefix;
+  let codeSlug: string = viewer.platform.slug;
+
+  if (data.teamId) {
+    const chosenTeam = await prisma.team.findUnique({
+      where: { id: data.teamId },
+      select: {
+        platformId: true,
+        platform: { select: { employeeCodePrefix: true, slug: true } },
+      },
+    });
+    if (!chosenTeam) throw new Error("TEAM_NOT_FOUND");
+    if (!owner && chosenTeam.platformId !== viewer.platformId) {
+      throw new Error("TEAM_NOT_FOUND");
+    }
+    targetPlatformId = chosenTeam.platformId;
+    codePrefix = chosenTeam.platform?.employeeCodePrefix ?? null;
+    codeSlug = chosenTeam.platform?.slug ?? viewer.platform.slug;
+  }
+
   const clash = await prisma.user.findFirst({
-    where: { platformId: viewer.platformId, email },
+    where: { platformId: targetPlatformId, email },
     select: { id: true },
   });
   if (clash) throw new Error("EMAIL_TAKEN");
 
+  // The code follows the company the person is actually joining, so somebody
+  // added to Aayush gets an Aayush code and not a TC Software one.
   const employeeCode =
     data.employeeCode?.trim() ||
-    (await nextEmployeeCode(
-      viewer.platformId,
-      viewer.platform.employeeCodePrefix,
-      viewer.platform.slug
-    ));
+    (await nextEmployeeCode(targetPlatformId, codePrefix, codeSlug));
 
   const passwordHash = await bcrypt.hash(data.password, BCRYPT_COST);
 
-  // skipOnboarding is the "they already work here" path — HR creating an
+  // skipOnboarding is the "they already work here" path â€” HR creating an
   // existing employee rather than a new joiner. It opens the tracker gate
   // immediately instead of waiting for documents and a resume.
   const skip = data.skipOnboarding === true;
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
-        platformId: viewer.platformId,
+        platformId: targetPlatformId,
         email,
         passwordHash,
         firstName: data.firstName.trim(),
@@ -255,6 +288,11 @@ export async function createUser(
         onboardingStatus: skip ? "ACTIVE" : "OFFER_SENT",
         trackerAccessEnabled: skip,
         accessGrantedAt: skip ? new Date() : null,
+        // Whoever typed this password - HR, an admin, or the generator - it is
+        // known to someone other than its owner, so it works exactly once.
+        mustChangePassword: true,
+
+
       },
       select: { id: true, email: true, employeeCode: true },
     });
@@ -264,13 +302,21 @@ export async function createUser(
         where: { id: data.teamId },
         select: { platformId: true },
       });
-      if (!team || team.platformId !== viewer.platformId) throw new Error("TEAM_NOT_FOUND");
+      if (!team || team.platformId !== targetPlatformId) throw new Error("TEAM_NOT_FOUND");
 
       await tx.teamMember.create({ data: { teamId: data.teamId, userId: user.id } });
     }
 
     return user;
   });
+
+  // A new joiner is useless without their login. Creating someone here must
+  // send the same welcome email the Joiners screen sends - otherwise they are
+  // chasing HR for a password that only ever existed in a form field.
+  // Existing employees skip it: that email is about documents they do not owe.
+  const mail = skip ? null : await sendWelcome(created.id, data.password);
+
+  return { ...created, mail };
 }
 
 export async function updateUser(
@@ -409,7 +455,7 @@ export async function createTeam(
   // A team without thresholds would make every alert fall back to a hardcoded
   // default, which is the thing we promised never to do. Config is created in
   // the same transaction, seeded from the platform's defaults.
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const team = await tx.team.create({
       data: {
         platformId: viewer.platformId,
@@ -470,15 +516,24 @@ export async function updateTeam(
 
 export async function addTeamMember(viewerId: string, teamId: string, userId: string) {
   const viewer = await actor(viewerId);
-  await samePlatformUser(viewer.platformId, userId);
+  const owner = await viewerIsOwner(viewerId);
 
   const team = await prisma.team.findUnique({
     where: { id: teamId },
     select: { platformId: true },
   });
-  if (!team || team.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
+  if (!team) throw new Error("NOT_FOUND");
+  if (!owner && team.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
 
-  // Upsert, not create — re-adding someone who previously left should
+  // An owner may reach across companies; nobody may mix them. The person and
+  // the team must belong to the same one.
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformId: true },
+  });
+  if (!target || target.platformId !== team.platformId) throw new Error("NOT_FOUND");
+
+  // Upsert, not create â€” re-adding someone who previously left should
   // reactivate their row rather than fail on the unique constraint.
   await prisma.teamMember.upsert({
     where: { teamId_userId: { teamId, userId } },
@@ -538,7 +593,7 @@ export async function createShift(
 
   const workingDays = normaliseWorkingDays(data.workingDays);
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     // Exactly one default per platform, enforced here rather than hoped for.
     if (data.isDefault) {
       await tx.shift.updateMany({
@@ -586,7 +641,7 @@ export async function updateShift(
   if (data.startTime) assertTime(data.startTime, "startTime");
   if (data.endTime) assertTime(data.endTime, "endTime");
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     if (data.isDefault) {
       await tx.shift.updateMany({
         where: { platformId: viewer.platformId, isDefault: true, id: { not: shiftId } },
@@ -673,7 +728,7 @@ export async function updateTeamConfig(
     Object.entries(payload).filter(([, v]) => v !== undefined)
   );
 
-  // Integer columns must not receive 8.5 — Postgres would reject it.
+  // Integer columns must not receive 8.5 â€” Postgres would reject it.
   for (const key of [
     "breakBudgetMinutes",
     "lateLoginGraceMinutes",
@@ -757,7 +812,7 @@ export async function markLeave(
   const leaveType = LEAVE_TYPES.find((t) => t === data.leaveType) ?? "PLANNED";
 
   // One row per calendar day. Reports then join on a date instead of doing
-  // range arithmetic on every query — and the unique constraint on
+  // range arithmetic on every query â€” and the unique constraint on
   // (userId, date) makes marking the same day twice harmless.
   const days: Date[] = [];
   for (let i = 0; i < spanDays; i++) {
@@ -808,64 +863,87 @@ export async function unmarkLeave(viewerId: string, userId: string, dateStr: str
 // not fire five requests before it can render a form.
 // ===========================================================================
 
+// ---------------------------------------------------------------------------
+// OWNER ACCESS
+//
+// Ranjan runs all ten companies, so he needs to see across them. A customer's
+// admin must not. Rather than a new role - which would mean a migration plus
+// auditing every ["HR","ADMIN"] check in the codebase, where one miss locks
+// someone out - this is driven by an environment setting. A customer's
+// installation never sets OWNER_CODES, so their admin stays scoped exactly as
+// before. Turning it off here is deleting one line from .env.
+// ---------------------------------------------------------------------------
+
+
 export async function getAdminOptions(viewerId: string) {
   const viewer = await actor(viewerId);
+  const owner = await viewerIsOwner(viewerId);
 
-    const [teams, shifts, managers, people] = await Promise.all([
-        prisma.team.findMany({
-      where: { platformId: viewer.platformId, isActive: true },
-      select: { id: true, name: true },
+  // Only an owner sees other companies' teams.
+  const teamScope = owner ? {} : { platformId: viewer.platformId };
+
+  const [teams, leads, shifts] = await Promise.all([
+    prisma.team.findMany({
+      where: { ...teamScope, isActive: true },
+      select: { id: true, name: true, platform: { select: { name: true } } },
       orderBy: { name: "asc" },
     }),
-    prisma.shift.findMany({
-      where: { platformId: viewer.platformId, isActive: true },
-      select: { id: true, name: true, startTime: true, endTime: true, isDefault: true },
-      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
-    }),
-        prisma.user.findMany({
-      where: { platformId: viewer.platformId, role: { in: ["MANAGER", "HR", "ADMIN"] } },
-      select: { id: true, firstName: true, lastName: true, role: true },
-      orderBy: { firstName: "asc" },
-    }),
-    // Anyone can be someone's manager. A team lead may still be an EMPLOYEE
-    // by role, so this list is deliberately not filtered.
-        // Everyone in this company, plus managers from the others — a manager
-    // may run teams across companies, so a reporting line has to be able to
-    // point at someone outside your own.
+
+    // Who may appear in any "reports to" or "manager" dropdown.
+    //
+    // MANAGER and ADMIN only. HR administers people, it does not approve
+    // their work, and an ordinary employee approving tasks defeats the point
+    // of approval. Deliberately NOT scoped to one company: a manager here
+    // genuinely runs teams across several, which is how Avatar operates.
     prisma.user.findMany({
       where: {
-        OR: [
-          { platformId: viewer.platformId },
-          { role: { in: ["MANAGER", "HR", "ADMIN"] } },
-        ],
+        role: { in: ["MANAGER", "ADMIN"] },
+        status: { not: "EXITED" },
       },
       select: {
         id: true,
         firstName: true,
         lastName: true,
         employeeCode: true,
-        platformId: true,
+        role: true,
         platform: { select: { name: true } },
       },
-      orderBy: { firstName: "asc" },
+      orderBy: [{ role: "asc" }, { firstName: "asc" }],
+    }),
+
+    // Shifts stay scoped to the viewer's own company even for an owner -
+    // putting someone on another company's shift would silently break their
+    // late-login measurement.
+    prisma.shift.findMany({
+      where: { platformId: viewer.platformId, isActive: true },
+      select: { id: true, name: true, startTime: true, endTime: true, isDefault: true },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
     }),
   ]);
 
+  const asOption = (p: (typeof leads)[number]) => ({
+    id: p.id,
+    name: `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim(),
+    employeeCode: p.employeeCode,
+    role: p.role,
+    company: p.platform?.name ?? null,
+  });
+
   return {
-    teams,
+    // An owner sees several companies at once, so the company is part of the
+    // label. Inside one company that prefix is just noise.
+    teams: teams.map((t) => ({
+      id: t.id,
+      name: owner && t.platform?.name ? `${t.platform.name} - ${t.name}` : t.name,
+    })),
     shifts,
-    managers: managers.map((m) => ({
-      id: m.id,
-      name: `${m.firstName} ${m.lastName}`.trim(),
-      role: m.role,
-    })),
-    people: people.map((p) => ({
-      id: p.id,
-      name: `${p.firstName} ${p.lastName}`.trim(),
-      employeeCode: p.employeeCode,
-    })),
+    // Both keys carry the same list so every dropdown reading either one gets
+    // the same rule, rather than two lists drifting apart.
+    managers: leads.map(asOption),
+    people: leads.map(asOption),
+    isOwner: owner,
     roles: USER_ROLES,
-      statuses: USER_STATUSES,
+    statuses: USER_STATUSES,
     onboardingStatuses: ONBOARDING_STATUSES,
     teamTypes: TEAM_TYPES,
     leaveTypes: LEAVE_TYPES,
