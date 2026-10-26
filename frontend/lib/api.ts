@@ -8,12 +8,23 @@
 const LIVE_API = "https://productivity-tracker-ps8u.onrender.com/api";
 const LOCAL_API = "http://localhost:5001/api";
 
-const API_URL =
+// Whatever the setting says, the backend only answers under /api. Rather than
+// trusting every future deployment to remember that suffix - and failing with
+// an unexplained "Route not found" when one does not - the suffix is enforced
+// here, along with stripping any trailing slash.
+function withApiSuffix(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+}
+
+const configured =
   process.env.NEXT_PUBLIC_API_URL ||
   (typeof window !== "undefined" &&
   !["localhost", "127.0.0.1"].includes(window.location.hostname)
     ? LIVE_API
     : LOCAL_API);
+
+const API_URL = withApiSuffix(configured);
 
 export function getToken() {
   if (typeof window === "undefined") return null;
