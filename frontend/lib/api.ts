@@ -1,4 +1,19 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001/api";
+// Where the backend lives.
+//
+// NEXT_PUBLIC_API_URL still wins if it is set, so a different deployment can
+// point somewhere else. But the fallback is no longer localhost for everyone:
+// a browser that is not on localhost gets the live server. A missing or
+// mistyped setting used to produce "Route not found" with nothing to explain
+// it, which is a bad way to find out a variable did not reach the build.
+const LIVE_API = "https://productivity-tracker-ps8u.onrender.com/api";
+const LOCAL_API = "http://localhost:5001/api";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" &&
+  !["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? LIVE_API
+    : LOCAL_API);
 
 export function getToken() {
   if (typeof window === "undefined") return null;
