@@ -37,6 +37,7 @@ type Candidate = {
 };
 
 type Doc = {
+  requirementId?: string | null;
   id: string;
   category?: string;
   status?: string;
@@ -361,7 +362,7 @@ export default function CandidatesPage() {
                           const canReview = status === "SUBMITTED";
 
                           return (
-                            <li key={d.requirementId ?? d.id} className="px-4 py-3">
+                            <li key={String(d.requirementId ?? d.id ?? d.label)} className="px-4 py-3">
                               <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
