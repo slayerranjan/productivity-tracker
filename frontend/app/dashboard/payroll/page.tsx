@@ -11,9 +11,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { API_BASE } from "@/lib/api";
 import { useMe } from "../layout";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001/api";
+const API = API_BASE;
 
 function token() {
   return typeof window === "undefined" ? "" : localStorage.getItem("token") ?? "";

@@ -26,6 +26,11 @@ const configured =
 
 const API_URL = withApiSuffix(configured);
 
+// Shared so no page builds this address for itself. Pages that did were
+// bypassing the /api handling entirely and calling a path the server does
+// not serve.
+export const API_BASE = API_URL;
+
 export function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("token");

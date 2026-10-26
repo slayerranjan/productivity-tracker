@@ -13,9 +13,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearToken, getToken } from "@/lib/api";
+import { clearToken, getToken , API_BASE } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001/api";
+const API = API_BASE;
 
 async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const res = await fetch(`${API}${path}`, {

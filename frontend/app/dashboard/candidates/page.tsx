@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, apiPost, getToken } from "@/lib/api";
+import { apiGet, apiPost, getToken , API_BASE } from "@/lib/api";
 import { useMe } from "../layout";
 import { ProgressBar } from "./ProgressBar";
 
@@ -149,7 +149,7 @@ export default function CandidatesPage() {
   // it ourselves with the token and opening the result keeps the file behind
   // authentication instead of putting a token in the address bar.
   async function viewDocument(docId: string) {
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5001/api";
+    const base = API_BASE;
     try {
       const res = await fetch(base + "/onboarding/documents/" + docId + "/file", {
         headers: { Authorization: "Bearer " + (getToken() ?? "") },
