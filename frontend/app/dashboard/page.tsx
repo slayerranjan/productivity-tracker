@@ -539,7 +539,10 @@ export default function TodayPage() {
             <button
               disabled={busy}
               onClick={() => act("/tracker/meeting/end")}
-              className="rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50"
+              // Hidden for employees, because only the manager who called the
+              // meeting may end it. The server enforces that rule - this just
+              // stops people clicking a button that would refuse them.
+              className={`rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50 ${["MANAGER", "HR", "ADMIN"].includes(String(me?.role)) ? "" : "hidden"}`}
             >
               End meeting
             </button>
