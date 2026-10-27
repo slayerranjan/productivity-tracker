@@ -504,6 +504,16 @@ export default function TodayPage() {
               ))}
             </div>
 
+            {["MANAGER", "HR", "ADMIN"].includes(String(me?.role)) && (
+              <button
+                disabled={busy}
+                onClick={() => act("/tracker/meeting/end")}
+                className="rounded-lg border border-violet-300 px-4 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-50 disabled:opacity-50"
+                title="Ends the meeting for everyone you invited"
+              >
+                End team meeting
+              </button>
+            )}
             <button
               disabled={busy}
               onClick={() => act("/tracker/clock-out")}
