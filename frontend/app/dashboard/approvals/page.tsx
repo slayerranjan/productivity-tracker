@@ -152,6 +152,50 @@ export default function ApprovalsPage() {
     ? allProposals.filter((t) => nameOf(t as RowLike) === person)
     : allProposals;
 
+  // Re-fetch when the date filter changes. Separate from the main load so the
+  // default view - today plus anything still pending - is untouched.
+  useEffect(() => {
+    if (preset === "default") return;
+
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    let from = "";
+    let to = "";
+
+    if (preset === "yesterday") {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 1);
+      from = iso(d);
+      to = iso(d);
+    } else if (preset === "week") {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 6);
+      from = iso(d);
+      to = iso(today);
+    } else if (preset === "custom") {
+      // Wait until both ends are chosen, otherwise every keystroke queries.
+      if (!customFrom || !customTo) return;
+      from = customFrom;
+      to = customTo;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const next = await call<Queue>(
+          `/tasks/review/queue?from=${from}&to=${to}`
+        );
+        if (!cancelled) setQueue(next);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [preset, customFrom, customTo]);
+
   const load = useCallback(async () => {
     try {
       setQueue(await call<Queue>("/tasks/review/queue"));
