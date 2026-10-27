@@ -508,7 +508,23 @@ export async function listForApproval(managerId: string) {
       orderBy: { firstName: "asc" },
     }),
     prisma.dailyTask.findMany({
-      where: { userId: { in: userIds }, date },
+      where: {
+        userId: { in: userIds },
+        // Today, plus anything still waiting on approval from an earlier day.
+        // Filtering on today alone meant a task submitted at 6pm vanished
+        // from the manager's queue at midnight, still pending and seen by
+        // nobody. Bounded to 30 days so the queue cannot grow without limit.
+        OR: [
+          { date },
+          {
+            approvalStatus: "PENDING",
+            date: {
+              lt: date,
+              gte: new Date(date.getTime() - 30 * 24 * 60 * 60 * 1000),
+            },
+          },
+        ],
+      },
       include: {
         team: { select: { id: true, name: true } },
         user: {
