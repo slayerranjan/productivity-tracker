@@ -116,19 +116,8 @@ async function manageableUserIds(actor: {
   role: string;
   platformId: string;
 }): Promise<string[]> {
-  if (actor.role === "ADMIN" || actor.role === "HR") {
-    const all = await prisma.user.findMany({
-      where: {
-        platformId: actor.platformId,
-        status: { in: ["ACTIVE", "INVITED"] },
-      },
-      select: { id: true },
-    });
-    return all.map((u) => u.id);
-  }
-
-  // Everyone on the projects they run, plus their direct reports. Both can
-  // cross companies.
+  // Everyone on the teams they run, plus their direct reports. Both can cross
+  // companies - at Avatar one person heads teams in several of them.
   const [managedTeams, reports] = await Promise.all([
     prisma.team.findMany({
       where: { managerId: actor.id, isActive: true },
@@ -142,15 +131,29 @@ async function manageableUserIds(actor: {
     }),
   ]);
 
-  return Array.from(
-    new Set([
-      ...managedTeams.flatMap((t) => t.members.map((m) => m.userId)),
-      ...reports.map((r) => r.id),
-    ])
-  );
+  const ids = new Set<string>([
+    ...managedTeams.flatMap((t) => t.members.map((m) => m.userId)),
+    ...reports.map((r) => r.id),
+  ]);
+
+  // An admin or HR also sees their own company. Note ADDED to the two lists
+  // above, not substituted for them: substituting meant an admin of one
+  // company could not approve for a team they personally run in another, so
+  // tasks submitted to them sat in nobody's queue and silently expired.
+  if (actor.role === "ADMIN" || actor.role === "HR") {
+    const all = await prisma.user.findMany({
+      where: {
+        platformId: actor.platformId,
+        status: { in: ["ACTIVE", "INVITED"] },
+      },
+      select: { id: true },
+    });
+    for (const u of all) ids.add(u.id);
+  }
+
+  return Array.from(ids);
 }
 
-// The projects somebody actually works on — the picker on the task form.
 async function myProjects(userId: string) {
   const rows = await prisma.teamMember.findMany({
     where: { userId, isActive: true, team: { isActive: true } },
