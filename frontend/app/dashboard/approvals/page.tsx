@@ -137,7 +137,7 @@ export default function ApprovalsPage() {
   const [preset, setPreset] = useState<string>("default");
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
-  const [tab, setTab] = useState<string>("notStarted");
+  const [tab, setTab] = useState<string>("waiting");
 
   // Every task the manager can see, split by where it actually is. The
   // database already carries all of these - the screen simply never showed
@@ -165,7 +165,7 @@ export default function ApprovalsPage() {
   const allProposals = queue?.proposals ?? [];
 
   const peopleCounts: [string, number][] = Array.from(
-    allProposals.reduce((map, t) => {
+    everything.reduce((map, t) => {
       const key = nameOf(t as RowLike);
       map.set(key, (map.get(key) ?? 0) + 1);
       return map;
@@ -366,6 +366,28 @@ export default function ApprovalsPage() {
 
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           {[
+            { key: "waiting", label: "Waiting for approval", n: allProposals.length },
+            { key: "notStarted", label: "Not started", n: bucket("notStarted").length },
+            { key: "inProgress", label: "In progress", n: bucket("inProgress").length },
+            { key: "needsGrading", label: "Done, needs grading", n: bucket("needsGrading").length },
+            { key: "graded", label: "Graded", n: bucket("graded").length },
+          ].map((o) => (
+            <button
+              key={o.key}
+              onClick={() => setTab(o.key)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                tab === o.key
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {o.label} ({o.n})
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          {[
             { key: "default", label: "Today" },
             { key: "yesterday", label: "Yesterday" },
             { key: "week", label: "Last 7 days" },
@@ -404,6 +426,7 @@ export default function ApprovalsPage() {
         </div>
       </section>
       {/* --- proposals ---------------------------------------------------- */}
+      {tab === "waiting" && (
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
           <h2 className="text-sm font-medium text-slate-900">
@@ -503,35 +526,17 @@ export default function ApprovalsPage() {
           ))}
         </ul>
       </section>
+      )}
 
       {/* --- to grade ------------------------------------------------------ */}
       {/* --- work already approved -------------------------------------- */}
+      {["notStarted", "inProgress", "graded"].includes(tab) && (
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
           <h2 className="text-sm font-medium text-slate-900">Work underway</h2>
           <p className="mt-0.5 text-xs text-slate-400">
             What you have already approved, and where it has got to.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {[
-              { key: "notStarted", label: "Not started" },
-              { key: "inProgress", label: "In progress" },
-              { key: "needsGrading", label: "Done, needs grading" },
-              { key: "graded", label: "Graded" },
-            ].map((o) => (
-              <button
-                key={o.key}
-                onClick={() => setTab(o.key)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                  tab === o.key
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {o.label} ({bucket(o.key).length})
-              </button>
-            ))}
-          </div>
         </div>
 
         <ul className="divide-y divide-slate-100">
@@ -558,7 +563,9 @@ export default function ApprovalsPage() {
           )}
         </ul>
       </section>
+      )}
 
+      {tab === "needsGrading" && (
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
           <h2 className="text-sm font-medium text-slate-900">
@@ -618,6 +625,7 @@ export default function ApprovalsPage() {
           ))}
         </ul>
       </section>
+      )}
 
       {/* --- recent -------------------------------------------------------- */}
       {queue && queue.recent.length > 0 && (
