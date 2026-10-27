@@ -463,7 +463,10 @@ export async function deleteMyTask(userId: string, taskId: string) {
 // ---------------------------------------------------------------------------
 // MANAGER SIDE
 // ---------------------------------------------------------------------------
-export async function listForApproval(managerId: string) {
+export async function listForApproval(
+  managerId: string,
+  range?: { from?: string; to?: string }
+) {
   const ctx = await userContext(managerId);
   if (!MANAGING_ROLES.includes(ctx.role)) throw new Error("NOT_ALLOWED");
 
@@ -471,6 +474,34 @@ export async function listForApproval(managerId: string) {
   const date = platformToday(ctx.timezone);
   const dateStr = date.toISOString().slice(0, 10);
 
+  // Default view is today plus anything still pending from earlier days, so
+  // nothing quietly ages out. Give a range and you get exactly that range -
+  // which is what "show me last week, for this person" needs.
+  const asUtcDay = (s?: string) =>
+    s ? new Date(s + "T00:00:00.000Z") : undefined;
+  const fromDate = asUtcDay(range?.from);
+  const toDate = asUtcDay(range?.to);
+
+  const dateFilter =
+    fromDate || toDate
+      ? {
+          date: {
+            ...(fromDate ? { gte: fromDate } : {}),
+            ...(toDate ? { lte: toDate } : {}),
+          },
+        }
+      : {
+          OR: [
+            { date },
+            {
+              approvalStatus: "PENDING" as const,
+              date: {
+                lt: date,
+                gte: new Date(date.getTime() - 30 * 24 * 60 * 60 * 1000),
+              },
+            },
+          ],
+        };
   const userIds = await manageableUserIds(actor);
   if (userIds.length === 0) {
     return {
@@ -510,20 +541,7 @@ export async function listForApproval(managerId: string) {
     prisma.dailyTask.findMany({
       where: {
         userId: { in: userIds },
-        // Today, plus anything still waiting on approval from an earlier day.
-        // Filtering on today alone meant a task submitted at 6pm vanished
-        // from the manager's queue at midnight, still pending and seen by
-        // nobody. Bounded to 30 days so the queue cannot grow without limit.
-        OR: [
-          { date },
-          {
-            approvalStatus: "PENDING",
-            date: {
-              lt: date,
-              gte: new Date(date.getTime() - 30 * 24 * 60 * 60 * 1000),
-            },
-          },
-        ],
+        ...dateFilter,
       },
       include: {
         team: { select: { id: true, name: true } },

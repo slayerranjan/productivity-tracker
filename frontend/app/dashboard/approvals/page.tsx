@@ -86,15 +86,15 @@ const OUTCOME_CHIP: Record<string, { label: string; cls: string }> = {
 // one it never sends, so every row showed a blank name. Reading all of them
 // means a rename on either side cannot silently empty this column again.
 type RowLike = {
-  personName?: string;
-  name?: string;
-  who?: string;
-  employee?: string;
-  employeeCode?: string;
-  date?: string;
+  personName?: string | null;
+  name?: string | null;
+  who?: string | null;
+  employee?: string | null;
+  employeeCode?: string | null;
+  date?: string | null;
 };
 
-function dayLabel(iso?: string): string {
+function dayLabel(iso?: string | null): string {
   if (!iso) return "";
   const today = new Date();
   const d = new Date(iso + "T00:00:00");
@@ -124,6 +124,33 @@ export default function ApprovalsPage() {
   const [assignTo, setAssignTo] = useState("");
   const [title, setTitle] = useState("");
   const [weight, setWeight] = useState("MEDIUM");
+
+  // Person is filtered here in the browser - the queue is already loaded.
+  // Dates go back to the server, because older days are not in the default
+  // response at all.
+  const [person, setPerson] = useState<string>("");
+  const [preset, setPreset] = useState<string>("default");
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
+
+  const nameOf = (t: RowLike) =>
+    t.personName || t.name || t.who || t.employee || "Unknown";
+
+  // Deliberately NOT cast to RowLike - the rendered rows need every field the
+  // task actually has. RowLike is only the shape nameOf reads.
+  const allProposals = queue?.proposals ?? [];
+
+  const peopleCounts: [string, number][] = Array.from(
+    allProposals.reduce((map, t) => {
+      const key = nameOf(t as RowLike);
+      map.set(key, (map.get(key) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  ).sort((a, b) => b[1] - a[1]);
+
+  const visibleProposals = person
+    ? allProposals.filter((t) => nameOf(t as RowLike) === person)
+    : allProposals;
 
   const load = useCallback(async () => {
     try {
@@ -240,11 +267,79 @@ export default function ApprovalsPage() {
         </p>
       </section>
 
+      {/* --- who and when ------------------------------------------------ */}
+      <section className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setPerson("")}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+              person === ""
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            Everyone ({allProposals.length})
+          </button>
+
+          {peopleCounts.map(([who, count]) => (
+            <button
+              key={who}
+              onClick={() => setPerson(person === who ? "" : who)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                person === who
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {who} ({count})
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          {[
+            { key: "default", label: "Today + pending" },
+            { key: "yesterday", label: "Yesterday" },
+            { key: "week", label: "Last 7 days" },
+            { key: "custom", label: "Custom dates" },
+          ].map((o) => (
+            <button
+              key={o.key}
+              onClick={() => setPreset(o.key)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                preset === o.key
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+
+          {preset === "custom" && (
+            <>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              />
+              <span className="text-xs text-slate-400">to</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              />
+            </>
+          )}
+        </div>
+      </section>
       {/* --- proposals ---------------------------------------------------- */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
           <h2 className="text-sm font-medium text-slate-900">
-            Waiting for your approval ({queue?.proposals.length ?? 0})
+            Waiting for your approval ({visibleProposals.length})
           </h2>
           <p className="mt-0.5 text-xs text-slate-400">
             Until you approve these, they don't count for anyone.
@@ -258,7 +353,7 @@ export default function ApprovalsPage() {
             </li>
           )}
 
-          {queue?.proposals.map((t) => (
+          {visibleProposals.map((t) => (
             <li key={t.id} className="px-5 py-4">
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1">

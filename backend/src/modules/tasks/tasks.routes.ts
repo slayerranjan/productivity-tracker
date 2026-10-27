@@ -79,7 +79,10 @@ router.delete("/:id", async (req, res) => {
 
 router.get("/review/queue", async (req, res) => {
   try {
-    res.json(await tasks.listForApproval(req.user!.userId));
+    res.json(await tasks.listForApproval(req.user!.userId, {
+      from: req.query.from ? String(req.query.from) : undefined,
+      to: req.query.to ? String(req.query.to) : undefined,
+    }));
   } catch (e) {
     fail(res, e);
   }
