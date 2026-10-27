@@ -92,6 +92,11 @@ type RowLike = {
   employee?: string | null;
   employeeCode?: string | null;
   date?: string | null;
+  status?: string | null;
+  approvalStatus?: string | null;
+  outcome?: string | null;
+  id?: string;
+  title?: string;
 };
 
 function dayLabel(iso?: string | null): string {
@@ -132,6 +137,25 @@ export default function ApprovalsPage() {
   const [preset, setPreset] = useState<string>("default");
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
+  const [tab, setTab] = useState<string>("notStarted");
+
+  // Every task the manager can see, split by where it actually is. The
+  // database already carries all of these - the screen simply never showed
+  // them, so approved work looked like it had disappeared.
+  // The endpoint sends ll; the local Queue type never declared it.
+  const everything = ((queue as unknown as { all?: RowLike[] })?.all ?? []) as RowLike[];
+
+  const bucket = (key: string) =>
+    everything.filter((t) => {
+      const a = String(t.approvalStatus ?? "");
+      const s = String(t.status ?? "");
+      if (a !== "APPROVED") return false;
+      if (key === "notStarted") return s === "PENDING";
+      if (key === "inProgress") return s === "IN_PROGRESS";
+      if (key === "needsGrading") return s === "COMPLETED" && !t.outcome;
+      if (key === "graded") return Boolean(t.outcome);
+      return false;
+    });
 
   const nameOf = (t: RowLike) =>
     t.personName || t.name || t.who || t.employee || "Unknown";
@@ -342,7 +366,7 @@ export default function ApprovalsPage() {
 
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           {[
-            { key: "default", label: "Today + pending" },
+            { key: "default", label: "Today" },
             { key: "yesterday", label: "Yesterday" },
             { key: "week", label: "Last 7 days" },
             { key: "custom", label: "Custom dates" },
@@ -481,6 +505,60 @@ export default function ApprovalsPage() {
       </section>
 
       {/* --- to grade ------------------------------------------------------ */}
+      {/* --- work already approved -------------------------------------- */}
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-5 py-3.5">
+          <h2 className="text-sm font-medium text-slate-900">Work underway</h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            What you have already approved, and where it has got to.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              { key: "notStarted", label: "Not started" },
+              { key: "inProgress", label: "In progress" },
+              { key: "needsGrading", label: "Done, needs grading" },
+              { key: "graded", label: "Graded" },
+            ].map((o) => (
+              <button
+                key={o.key}
+                onClick={() => setTab(o.key)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                  tab === o.key
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {o.label} ({bucket(o.key).length})
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <ul className="divide-y divide-slate-100">
+          {bucket(tab)
+            .filter((t) => !person || nameOf(t) === person)
+            .map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-slate-900">{t.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{personLabel(t)}</p>
+                </div>
+                {t.outcome && (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                    {String(t.outcome).toLowerCase().replace("_", " ")}
+                  </span>
+                )}
+              </li>
+            ))}
+
+          {bucket(tab).filter((t) => !person || nameOf(t) === person).length === 0 && (
+            <li className="px-5 py-6 text-center text-xs text-slate-400">
+              Nothing here.
+            </li>
+          )}
+        </ul>
+      </section>
+
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
           <h2 className="text-sm font-medium text-slate-900">
