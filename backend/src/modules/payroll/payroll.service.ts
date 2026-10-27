@@ -234,7 +234,7 @@ export async function uploadSlip(
         publishedAt: null,
       },
     });
-    await deleteStored(existing.storageKey);
+    if (existing.storageKey) await deleteStored(existing.storageKey);
     return { ok: true, replaced: true };
   }
 
@@ -294,7 +294,7 @@ export async function deleteSlip(viewerId: string, slipId: string) {
   if (!slip || slip.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
 
   await prisma.salarySlip.delete({ where: { id: slipId } });
-  await deleteStored(slip.storageKey);
+  if (slip.storageKey) await deleteStored(slip.storageKey);
 
   return { ok: true };
 }
@@ -330,6 +330,10 @@ export async function downloadSlip(viewerId: string, slipId: string) {
 
   // HR can open a draft to check it. The owner cannot see it until released.
   if (isOwner && !isStaff && !slip.publishedAt) throw new Error("NOT_PUBLISHED");
+
+  // A generated slip carries its figures but no file until somebody
+  // produces one, so downloading it is a different thing from having it.
+  if (!slip.storageKey) throw new Error("NO_FILE");
 
   const buffer = await readStored(slip.storageKey);
 
