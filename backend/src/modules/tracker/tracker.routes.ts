@@ -169,9 +169,11 @@ router.post("/invites/:id/respond", async (req, res) => {
   }
 });
 
-router.post("/meeting/end", async (req, res) => {
+// Only the manager who called the meeting can end it. An employee ending it
+// could stop it hours later, or stop it for everyone else mid-meeting.
+router.post("/meeting/end", requireRole("MANAGER", "HR", "ADMIN"), async (req, res) => {
   try {
-    res.json(await tracker.endMeeting(req.user!.userId));
+    res.json(await tracker.endMeetingForAll(req.user!.userId));
   } catch (error) {
     fail(res, error);
   }

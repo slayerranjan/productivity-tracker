@@ -82,6 +82,38 @@ const OUTCOME_CHIP: Record<string, { label: string; cls: string }> = {
   FAILED: { label: "not done", cls: "bg-rose-50 text-rose-700" },
 };
 
+// The endpoint sends the person under several keys and the screen was reading
+// one it never sends, so every row showed a blank name. Reading all of them
+// means a rename on either side cannot silently empty this column again.
+type RowLike = {
+  personName?: string;
+  name?: string;
+  who?: string;
+  employee?: string;
+  employeeCode?: string;
+  date?: string;
+};
+
+function dayLabel(iso?: string): string {
+  if (!iso) return "";
+  const today = new Date();
+  const d = new Date(iso + "T00:00:00");
+  const days = Math.round(
+    (new Date(today.toDateString()).getTime() - d.getTime()) / 86400000
+  );
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  // Past two days an actual date is more useful than "day before yesterday",
+  // which stops meaning anything once you are chasing week-old work.
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function personLabel(t: RowLike): string {
+  const who = t.personName || t.name || t.who || t.employee || "Unknown";
+  const code = t.employeeCode ? ` (${t.employeeCode})` : "";
+  const when = dayLabel(t.date);
+  return when ? `${who}${code} · ${when}` : `${who}${code}`;
+}
 export default function ApprovalsPage() {
   const me = useMe();
   const [queue, setQueue] = useState<Queue | null>(null);
@@ -232,7 +264,7 @@ export default function ApprovalsPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-900">{t.title}</p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    {t.personName}
+                    {personLabel(t as RowLike)}
                     {t.isCarriedOver && " · carried over"}
                   </p>
                   {t.description && (
@@ -331,7 +363,7 @@ export default function ApprovalsPage() {
             <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-900">{t.title}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{t.personName}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{personLabel(t as RowLike)}</p>
                 {t.completionNote && (
                   <p className="mt-1 text-xs text-slate-500">
                     Their note: {t.completionNote}
@@ -386,7 +418,7 @@ export default function ApprovalsPage() {
                 >
                   <span className="min-w-0 flex-1 truncate text-slate-600">
                     {t.title}
-                    <span className="ml-2 text-xs text-slate-400">{t.personName}</span>
+                    <span className="ml-2 text-xs text-slate-400">{personLabel(t as RowLike)}</span>
                   </span>
                   {grade && (
                     <span

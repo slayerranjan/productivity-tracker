@@ -447,6 +447,83 @@ export async function respondToMeeting(
   return recompute(meeting.workSessionId);
 }
 
+// How long a meeting may run before the system ends it itself. Once only a
+// manager can end a meeting, a manager who forgets would otherwise record a
+// whole day of "meeting time" for their entire team.
+const MAX_MEETING_HOURS = 4;
+
+// Ends the meeting for everyone the manager invited, in one action. Each
+// attendee has their own row against their own day, so "end the meeting"
+// means closing all of them - otherwise one person stays in a meeting that
+// finished an hour ago.
+export async function endMeetingForAll(managerId: string) {
+  const open = await prisma.trackerMeeting.findMany({
+    where: {
+      invitedById: managerId,
+      approvalStatus: "APPROVED",
+      startedAt: { not: null },
+      endedAt: null,
+    },
+    select: { id: true, startedAt: true, workSessionId: true },
+  });
+
+  if (open.length === 0) throw new Error("NO_MEETING_RUNNING");
+
+  const now = new Date();
+  for (const m of open) {
+    await prisma.trackerMeeting.update({
+      where: { id: m.id },
+      data: {
+        endedAt: now,
+        durationSeconds: Math.max(
+          0,
+          Math.floor((now.getTime() - m.startedAt!.getTime()) / 1000)
+        ),
+      },
+    });
+  }
+
+  for (const sessionId of Array.from(new Set(open.map((m) => m.workSessionId)))) {
+    await recompute(sessionId);
+  }
+
+  return { ok: true, ended: open.length };
+}
+
+// Run on a timer. A meeting left open past the limit is closed and credited
+// only up to the limit - the hours after that were not a meeting, they were
+// somebody forgetting to press a button, and paying for them would quietly
+// inflate everyone's productive time.
+export async function closeStaleMeetings(): Promise<number> {
+  const cutoff = new Date(Date.now() - MAX_MEETING_HOURS * 3600_000);
+
+  const stale = await prisma.trackerMeeting.findMany({
+    where: {
+      approvalStatus: "APPROVED",
+      endedAt: null,
+      startedAt: { not: null, lt: cutoff },
+    },
+    select: { id: true, startedAt: true, workSessionId: true },
+  });
+
+  for (const m of stale) {
+    const endedAt = new Date(m.startedAt!.getTime() + MAX_MEETING_HOURS * 3600_000);
+    await prisma.trackerMeeting.update({
+      where: { id: m.id },
+      data: {
+        endedAt,
+        durationSeconds: MAX_MEETING_HOURS * 3600,
+        autoClosed: true,
+      },
+    });
+  }
+
+  for (const sessionId of Array.from(new Set(stale.map((m) => m.workSessionId)))) {
+    await recompute(sessionId);
+  }
+
+  return stale.length;
+}
 export async function endMeeting(userId: string) {
   const ctx = await getContext(userId);
   const date = platformToday(ctx.timezone);
