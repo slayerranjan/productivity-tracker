@@ -144,6 +144,9 @@ export default function TodayPage() {
   const me = useMe();
   const [session, setSession] = useState<Session | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
+  // True while a meeting this person called is still running, so the End
+  // button appears and disappears on its own, on every device.
+  const [hostsMeeting, setHostsMeeting] = useState(false);
   const [invites, setInvites] = useState<Meeting[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -154,11 +157,12 @@ export default function TodayPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await apiGet<{ session: Session | null; config: Config }>(
+      const res = await apiGet<{ session: Session | null; config: Config; hostsOpenMeeting?: boolean }>(
         "/tracker/session"
       );
       setSession(res.session);
       setConfig(res.config);
+      setHostsMeeting(Boolean(res.hostsOpenMeeting));
       fetchedAt.current = Date.now();
       setError("");
 
@@ -504,7 +508,7 @@ export default function TodayPage() {
               ))}
             </div>
 
-            {["MANAGER", "HR", "ADMIN"].includes(String(me?.role)) && (
+            {hostsMeeting && ["MANAGER", "HR", "ADMIN"].includes(String(me?.role)) && (
               <button
                 disabled={busy}
                 onClick={() => act("/tracker/meeting/end")}

@@ -110,15 +110,29 @@ export async function getActiveSession(userId: string) {
   const ctx = await getContext(userId);
   const date = platformToday(ctx.timezone);
 
+  // Is this person hosting a meeting that is still running? A manager has no
+  // meeting row of their own - the rows belong to the people they invited -
+  // so their screen has no way to know one is running, and the End button
+  // could neither appear at the right time nor go away afterwards.
+  const hostsOpenMeeting =
+    (await prisma.trackerMeeting.count({
+      where: {
+        invitedById: userId,
+        approvalStatus: "APPROVED",
+        startedAt: { not: null },
+        endedAt: null,
+      },
+    })) > 0;
+
   const session = await prisma.workSession.findUnique({
     where: { userId_date: { userId, date } },
     include: { breaks: true, meetings: true },
   });
 
-  if (!session) return { session: null, config: ctx.config };
+  if (!session) return { session: null, config: ctx.config, hostsOpenMeeting };
 
   const fresh = await recompute(session.id);
-  return { session: fresh, config: ctx.config };
+  return { session: fresh, config: ctx.config, hostsOpenMeeting };
 }
 
 export async function clockIn(userId: string) {
