@@ -262,9 +262,7 @@ export default function ApprovalsPage() {
   return (
     <div className="p-8 max-w-5xl space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Approvals
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Team tasks</h1>
         <p className="mt-1 text-sm text-slate-500">
           Agree the work before it starts, grade it once it's done.
           {queue ? ` ${queue.teamSize} people in your teams.` : ""}
@@ -279,7 +277,7 @@ export default function ApprovalsPage() {
 
       {/* --- assign ------------------------------------------------------- */}
       {/* --- who, what state, when --------------------------------------- */}
-      <section className="rounded-2xl border border-slate-200 bg-white">
+      <section className="rounded-2xl rounded-b-none border border-b-0 border-slate-200 bg-white">
         {/* people */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
           {[{ who: "", count: everything.length }, ...peopleCounts.map(([who, count]) => ({ who, count }))].map(
@@ -476,11 +474,8 @@ export default function ApprovalsPage() {
       </section>
       {/* --- proposals ---------------------------------------------------- */}
       {tab === "waiting" && (
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
-          <h2 className="text-sm font-medium text-slate-900">
-            Waiting for your approval ({visibleProposals.length})
-          </h2>
           <p className="mt-0.5 text-xs text-slate-400">
             Until you approve these, they don't count for anyone.
           </p>
@@ -580,9 +575,8 @@ export default function ApprovalsPage() {
       {/* --- to grade ------------------------------------------------------ */}
       {/* --- work already approved -------------------------------------- */}
       {["todo", "inProgress"].includes(tab) && (
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
-          <h2 className="text-sm font-medium text-slate-900">Work underway</h2>
           <p className="mt-0.5 text-xs text-slate-400">
             What you have already approved, and where it has got to.
           </p>
@@ -615,11 +609,8 @@ export default function ApprovalsPage() {
       )}
 
       {tab === "completed" && (
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-3.5">
-          <h2 className="text-sm font-medium text-slate-900">
-            Finished, waiting for your verdict ({queue?.toReview.length ?? 0})
-          </h2>
           <p className="mt-0.5 text-xs text-slate-400">
             Until you grade these they score full marks.
           </p>
@@ -678,7 +669,7 @@ export default function ApprovalsPage() {
 
       {/* --- recent -------------------------------------------------------- */}
       {queue && queue.recent.length > 0 && (
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
           <div className="border-b border-slate-100 px-5 py-3.5">
             <h2 className="text-sm font-medium text-slate-900">Recently graded</h2>
           </div>
