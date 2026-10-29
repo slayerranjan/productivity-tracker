@@ -17,3 +17,7 @@ logins.txt
 *.bak3
 
 *.bak*
+
+# Generated payslips - real pay data, never in the repository
+backend/payslip-*.pdf
+backend/tmp/
