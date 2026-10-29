@@ -453,14 +453,20 @@ function PersonDrawer({
           teamId: form.teamId || undefined,
           dateOfJoining: form.dateOfJoining || undefined,
           skipOnboarding: form.skipOnboarding,
-        })) as unknown as {
+          })) as unknown as {
+          user?: {
+            mail?: { sent?: boolean; reason?: string | null; to?: string | null } | null;
+          } | null;
           mail?: { sent?: boolean; reason?: string | null; to?: string | null } | null;
         };
 
         // The backend already reports whether the welcome email went out.
         // Throwing that away left HR assuming a password had been delivered
         // when it never left the building.
-        const mail = result?.mail ?? null;
+                // The route wraps the created person as { user }, so the mail result
+        // sits one level deeper than it looks. Both shapes are accepted, so a
+        // change at either end cannot silently blank this message again.
+        const mail = result?.user?.mail ?? result?.mail ?? null;
         const mailNote = form.skipOnboarding
           ? " No welcome email — marked as an existing employee."
           : mail?.sent
