@@ -439,7 +439,7 @@ function PersonDrawer({
     setBusy(true);
     try {
       if (isNew) {
-        await call("/admin/users", "POST", {
+                const result = (await call("/admin/users", "POST", {
           firstName: form.firstName,
           lastName: form.lastName,
           email: form.email,
@@ -448,13 +448,26 @@ function PersonDrawer({
           role: form.role,
           designation: form.designation || undefined,
           employeeCode: form.employeeCode || undefined,
-         shiftId: form.shiftId || undefined,
+          shiftId: form.shiftId || undefined,
           reportsToId: form.reportsToId || undefined,
           teamId: form.teamId || undefined,
           dateOfJoining: form.dateOfJoining || undefined,
           skipOnboarding: form.skipOnboarding,
-        });
-        onSaved(`${form.firstName} ${form.lastName} added.`);
+        })) as unknown as {
+          mail?: { sent?: boolean; reason?: string | null; to?: string | null } | null;
+        };
+
+        // The backend already reports whether the welcome email went out.
+        // Throwing that away left HR assuming a password had been delivered
+        // when it never left the building.
+        const mail = result?.mail ?? null;
+        const mailNote = form.skipOnboarding
+          ? " No welcome email — marked as an existing employee."
+          : mail?.sent
+          ? ` Welcome email sent to ${mail.to ?? form.email}.`
+          : ` Welcome email NOT sent (${mail?.reason ?? "unknown"}) — give them the password yourself.`;
+
+        onSaved(`${form.firstName} ${form.lastName} added.${mailNote}`);
       } else {
         await call(`/admin/users/${person!.id}`, "PATCH", {
           firstName: form.firstName,
