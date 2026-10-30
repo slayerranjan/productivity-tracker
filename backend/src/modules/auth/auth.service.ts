@@ -39,6 +39,20 @@ async function findByIdentifier(identifier: string) {
   });
 
   if (matches.length > 1) throw new Error("DUPLICATE_EMPLOYEE_ID");
+  if (matches.length === 1) return matches;
+
+  // Not an employee ID: it may be a username such as "ankit_avatar". Only tried when no ID matched, so signing
+  // in with an ID or an email behaves exactly as before. If the usernames table does not exist yet (migration
+  // not applied) this simply finds nothing — it can never break the existing sign-in.
+  try {
+    const row = await prisma.loginUsername.findUnique({ where: { username: id.toLowerCase() } });
+    if (row) {
+      const byName = await prisma.user.findUnique({ where: { id: row.userId }, include: { platform: true } });
+      return byName ? [byName] : [];
+    }
+  } catch {
+    /* table not there yet */
+  }
   return matches;
 }
 

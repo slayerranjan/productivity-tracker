@@ -133,6 +133,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard", label: "Today", ready: true, notRoles: ["HR", "ADMIN"], icon: I.today },
       { href: "/dashboard/admin", label: "Employees", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
       { href: "/dashboard/team", label: "Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.holidays },
+      { href: "/dashboard/team-attendance", label: "Team Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.team },
       { href: "/dashboard/corrections", label: "Corrections", ready: true, roles: ["HR", "ADMIN"], badge: "corrections", icon: I.history },
       { href: "/dashboard/today", label: "Productivity Tracker", ready: true, roles: ["HR", "ADMIN"], icon: I.today },
       { href: "/dashboard/approvals", label: "Tasks & Performance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.approvals },

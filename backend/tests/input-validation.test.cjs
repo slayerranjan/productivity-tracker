@@ -1,7 +1,7 @@
 // Bad input on WRITE endpoints must come back as a 4xx with a message, never a 500.
 require("dotenv").config({ path: require("node:path").join(__dirname, "..", ".env") });
 const { Client } = require("pg");
-const API = "http://localhost:5002/api";
+const API = (process.env.TEST_API ?? "http://localhost:5002/api");
 require("./_guard.cjs").assertTestDb(process.env.TEST_DATABASE_URL);
 const call = async (m, p, t, b) => {
   const r = await fetch(API + p, { method: m, headers: { "content-type": "application/json", ...(t ? { authorization: "Bearer " + t } : {}) }, body: b !== undefined ? JSON.stringify(b) : undefined });

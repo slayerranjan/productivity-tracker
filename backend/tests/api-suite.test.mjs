@@ -10,7 +10,7 @@ const jwt = require("jsonwebtoken");
 const BRANCH_URL = process.env.TEST_DATABASE_URL;
 guard.assertTestDb(BRANCH_URL);
 const OUT = process.argv[2] || "suite_results.json";
-const B = "http://localhost:5002/api";
+const B = (process.env.TEST_API ?? "http://localhost:5002/api");
 
 const db = new pg.Client({ connectionString: BRANCH_URL });
 await db.connect();

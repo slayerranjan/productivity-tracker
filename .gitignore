@@ -24,3 +24,6 @@ backend/tmp/
 # Local environment files (database passwords, API keys). Only .env.example is tracked.
 .env.*
 !.env.example
+
+# Output written by backend/tests/api-suite.test.mjs
+backend/suite_results.json

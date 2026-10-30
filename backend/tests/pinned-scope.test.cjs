@@ -1,6 +1,6 @@
 const path = "";
 const { Client } = require(path + "pg");
-const API = "http://localhost:5002/api";
+const API = (process.env.TEST_API ?? "http://localhost:5002/api");
 const call = async (m, p, t, b) => {
   const r = await fetch(API + p, { method: m, headers: { "content-type": "application/json", ...(t ? { authorization: "Bearer " + t } : {}) }, body: b ? JSON.stringify(b) : undefined });
   const txt = await r.text(); let j; try { j = JSON.parse(txt); } catch { j = txt; }

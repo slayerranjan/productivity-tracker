@@ -1,3 +1,4 @@
+import { emitTaskChange } from "../../lib/realtime.js";
 import { prisma } from "../../lib/prisma.js";
 import { inPinnedCompany, onlyPinnedCompany } from "../../lib/deployment.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
@@ -114,7 +115,7 @@ async function assertCanManage(
   throw new Error("NOT_YOUR_TEAM");
 }
 
-async function manageableUserIds(actor: {
+export async function manageableUserIds(actor: {
   id: string;
   role: string;
   platformId: string;
@@ -347,7 +348,7 @@ export async function proposeTask(userId: string, body: Record<string, unknown>)
   const date = platformToday(ctx.timezone);
   const selfApprove = !ctx.user.reportsToId;
 
-  await prisma.dailyTask.create({
+  const created = await prisma.dailyTask.create({
     data: {
       platformId: ctx.platformId,
       userId,
@@ -361,7 +362,9 @@ export async function proposeTask(userId: string, body: Record<string, unknown>)
       approvedById: selfApprove ? userId : null,
       approvedAt: selfApprove ? new Date() : null,
     },
+    select: { id: true },
   });
+  emitTaskChange({ taskId: created.id, ownerId: userId, action: "created" }); // after the write succeeded
 
   return listTasks(userId);
 }
@@ -384,6 +387,10 @@ export async function updateMyTask(
     }
     if (task.outcome) throw new Error("ALREADY_REVIEWED");
     data.status = status as never;
+    // Productivity is counted in the hour a task was actually finished, so the moment is recorded.
+    // Moving it back out of COMPLETED (before a manager reviews it) clears it again.
+    if (status === "COMPLETED" && String(task.status) !== "COMPLETED") data.completedAt = new Date();
+    if (status !== "COMPLETED" && String(task.status) === "COMPLETED") data.completedAt = null;
   }
 
   if (body.completionNote !== undefined) {
@@ -442,6 +449,7 @@ export async function updateMyTask(
     where: { id: taskId },
     data: data as never,
   });
+  emitTaskChange({ taskId, ownerId: userId, action: body.status !== undefined ? "status" : "updated" });
 
   return listTasks(userId);
 }
@@ -460,6 +468,7 @@ export async function deleteMyTask(userId: string, taskId: string) {
   }
 
   await prisma.dailyTask.delete({ where: { id: taskId } });
+  emitTaskChange({ taskId, ownerId: userId, action: "deleted" });
   return listTasks(userId);
 }
 
@@ -661,7 +670,7 @@ export async function assignTask(
   // The task lands on the EMPLOYEE's day, in their company's timezone.
   const date = platformToday(target.platform.timezone);
 
-  await prisma.dailyTask.create({
+  const assigned = await prisma.dailyTask.create({
     data: {
       platformId: target.platformId,
       userId: targetUserId,
@@ -677,7 +686,9 @@ export async function assignTask(
       approvedAt: new Date(),
       assignedById: managerId,
     },
+    select: { id: true },
   });
+  emitTaskChange({ taskId: assigned.id, ownerId: targetUserId, action: "assigned" });
 
   return listForApproval(managerId);
 }
@@ -717,6 +728,7 @@ export async function approveTask(
         : null,
     },
   });
+  emitTaskChange({ taskId, ownerId: task.userId, action: approve ? "approved" : "rejected" });
 
   return listForApproval(managerId);
 }
@@ -755,6 +767,7 @@ export async function reviewTask(
       reviewNote: note ? String(note).trim().slice(0, 1000) : null,
     },
   });
+  emitTaskChange({ taskId, ownerId: task.userId, action: "graded" });
 
   return listForApproval(managerId);
 }

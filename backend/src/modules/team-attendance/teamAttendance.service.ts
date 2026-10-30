@@ -1,0 +1,431 @@
+// Team Attendance & Performance (manager view): the live board and the per-day shift breakdown.
+//
+// Read-only. Nothing here writes. Everything is derived from the existing work sessions, breaks, meetings
+// and leave days, so it can never disagree with Live Team, Reports or the timesheet.
+//
+// Who is on screen = visibleUserIds (teams the viewer runs + people who report to them; HR/Admin: their
+// company) — the same function Live Team and Reports use, so the three can never disagree.
+// "Today" and every calendar day are the VIEWER'S company day (platform timezone).
+
+import { prisma } from "../../lib/prisma.js";
+import { platformToday, parseIsoDay } from "../../lib/dates.js";
+import { visibleUserIds } from "../tracker/tracker.service.js";
+import { getMonthAttendanceBulk } from "../attendance/attendance.service.js";
+
+// Where no team config exists these match what Live Team already assumes.
+const DEFAULT_PRODUCTIVE_HOURS = 8;
+const DEFAULT_BREAK_BUDGET_MINUTES = 60;
+
+export type LiveStatus =
+  | "WORKING"
+  | "TEA"
+  | "LUNCH"
+  | "BIO"
+  | "OTHER_BREAK"
+  | "MEETING"
+  | "CLOCKED_OUT"
+  | "NOT_CLOCKED_IN"
+  | "ON_LEAVE";
+
+const BREAK_GROUP: Record<string, "TEA" | "LUNCH" | "BIO" | "OTHER"> = {
+  TEA: "TEA",
+  LUNCH: "LUNCH",
+  WASHROOM: "BIO", // shown as "Bio break"
+  PERSONAL: "OTHER",
+  OTHER: "OTHER",
+};
+
+async function getViewer(viewerId: string) {
+  const viewer = await prisma.user.findUnique({
+    where: { id: viewerId },
+    select: { id: true, role: true, platformId: true, platform: { select: { timezone: true, name: true } } },
+  });
+  if (!viewer) throw new Error("USER_NOT_FOUND");
+  if (!["MANAGER", "HR", "ADMIN"].includes(String(viewer.role))) throw new Error("NOT_ALLOWED");
+  return viewer;
+}
+
+const secondsBetween = (from: Date, to: Date) => Math.max(0, Math.floor((to.getTime() - from.getTime()) / 1000));
+
+type SessionWithParts = {
+  id: string;
+  userId: string;
+  loginAt: Date;
+  logoutAt: Date | null;
+  status: string;
+  productiveSeconds: number;
+  breakSeconds: number;
+  meetingSeconds: number;
+  updatedAt: Date;
+  wasLateLogin: boolean;
+  lateByMinutes: number;
+  breaks: { breakType: string; startedAt: Date; endedAt: Date | null; durationSeconds: number | null }[];
+  meetings: { approvalStatus: string; startedAt: Date | null; endedAt: Date | null; durationSeconds: number | null }[];
+};
+
+// Totals as of `now`. A finished session uses the stored columns; a running one adds the time since the last
+// recompute (same adjustment Live Team makes), so the board is live without writing anything.
+function totalsOf(s: SessionWithParts, now: Date) {
+  let productive = s.productiveSeconds;
+  let breakSec = s.breakSeconds;
+  let meeting = s.meetingSeconds;
+  const openBreak = s.breaks.find((b) => !b.endedAt) ?? null;
+  const openMeeting = s.meetings.find((m) => m.approvalStatus === "APPROVED" && m.startedAt && !m.endedAt) ?? null;
+
+  if (s.status === "ACTIVE") {
+    const since = secondsBetween(s.updatedAt, now);
+    if (openBreak) breakSec += since;
+    else {
+      productive += since;
+      if (openMeeting) meeting += since;
+    }
+  }
+  return { productive, breakSec, meeting, openBreak, openMeeting };
+}
+
+// When the CURRENT status began.
+function statusStartedAt(s: SessionWithParts, openBreak: { startedAt: Date } | null, openMeeting: { startedAt: Date | null } | null): Date {
+  if (s.status === "COMPLETED" && s.logoutAt) return s.logoutAt;
+  if (openBreak) return openBreak.startedAt;
+  if (openMeeting?.startedAt) return openMeeting.startedAt;
+  // working: since the latest of login or the end of the last break / meeting
+  let latest = s.loginAt.getTime();
+  for (const b of s.breaks) if (b.endedAt) latest = Math.max(latest, b.endedAt.getTime());
+  for (const m of s.meetings) if (m.approvalStatus === "APPROVED" && m.endedAt) latest = Math.max(latest, m.endedAt.getTime());
+  return new Date(latest);
+}
+
+async function loadPeople(userIds: string[]) {
+  return prisma.user.findMany({
+    where: { id: { in: userIds }, status: { notIn: ["SUSPENDED", "EXITED"] } },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      employeeCode: true,
+      designation: true,
+      teamMemberships: {
+        where: { isActive: true },
+        select: { team: { select: { name: true, config: { select: { productiveHours: true, breakBudgetMinutes: true } } } } },
+        take: 1,
+      },
+    },
+    orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+  });
+}
+
+const targetsFor = (person: Awaited<ReturnType<typeof loadPeople>>[number]) => {
+  const cfg = person.teamMemberships[0]?.team?.config ?? null;
+  return {
+    teamName: person.teamMemberships[0]?.team?.name ?? null,
+    productiveTargetSeconds: Math.round((cfg?.productiveHours ?? DEFAULT_PRODUCTIVE_HOURS) * 3600),
+    breakBudgetSeconds: (cfg?.breakBudgetMinutes ?? DEFAULT_BREAK_BUDGET_MINUTES) * 60,
+  };
+};
+
+// ---------------------------------------------------------------------------------------------
+// LIVE BOARD (today)
+// ---------------------------------------------------------------------------------------------
+export async function getLiveBoard(viewerId: string) {
+  const viewer = await getViewer(viewerId);
+  const timezone = viewer.platform.timezone;
+  const date = platformToday(timezone);
+  const now = new Date();
+
+  const userIds = await visibleUserIds({ id: viewer.id, role: String(viewer.role), platformId: viewer.platformId });
+  const empty = { generatedAt: now.toISOString(), timezone, date: date.toISOString().slice(0, 10), summary: { online: 0, clockedOut: 0, notClockedIn: 0, onLeave: 0, present: 0, total: 0 }, rows: [] as unknown[] };
+  if (userIds.length === 0) return empty;
+
+  const people = await loadPeople(userIds);
+  const ids = people.map((p) => p.id);
+  const [sessions, leaveDays] = await Promise.all([
+    prisma.workSession.findMany({ where: { userId: { in: ids }, date }, include: { breaks: true, meetings: true } }),
+    prisma.leaveDay.findMany({ where: { userId: { in: ids }, date }, select: { userId: true } }),
+  ]);
+  const byUser = new Map(sessions.map((s) => [s.userId, s]));
+  const onLeave = new Set(leaveDays.map((l) => l.userId));
+
+  const rows = people.map((p) => {
+    const t = targetsFor(p);
+    const s = byUser.get(p.id) ?? null;
+    let status: LiveStatus;
+    let startedAt: Date | null = null;
+    let productive = 0;
+    let breakSec = 0;
+    let meeting = 0;
+    let shiftSeconds: number | null = null;
+
+    if (!s) {
+      status = onLeave.has(p.id) ? "ON_LEAVE" : "NOT_CLOCKED_IN";
+    } else {
+      const tt = totalsOf(s as SessionWithParts, now);
+      productive = tt.productive;
+      breakSec = tt.breakSec;
+      meeting = tt.meeting;
+      startedAt = statusStartedAt(s as SessionWithParts, tt.openBreak, tt.openMeeting);
+      shiftSeconds = secondsBetween(s.loginAt, s.logoutAt ?? now);
+      if (s.status === "COMPLETED") status = "CLOCKED_OUT";
+      else if (tt.openBreak) status = BREAK_GROUP[tt.openBreak.breakType] === "TEA" ? "TEA" : BREAK_GROUP[tt.openBreak.breakType] === "LUNCH" ? "LUNCH" : BREAK_GROUP[tt.openBreak.breakType] === "BIO" ? "BIO" : "OTHER_BREAK";
+      else if (tt.openMeeting) status = "MEETING";
+      else status = "WORKING";
+    }
+
+    return {
+      userId: p.id,
+      name: `${p.firstName} ${p.lastName}`.trim(),
+      employeeCode: p.employeeCode,
+      designation: p.designation,
+      teamName: t.teamName,
+      status,
+      statusStartedAt: startedAt ? startedAt.toISOString() : null,
+      loginAt: s ? s.loginAt.toISOString() : null,
+      wasLateLogin: s?.wasLateLogin ?? false,
+      lateByMinutes: s?.lateByMinutes ?? 0,
+      shiftSeconds,
+      productiveSeconds: s ? productive : null,
+      breakSeconds: s ? breakSec : null,
+      meetingSeconds: s ? meeting : null,
+      productiveTargetSeconds: t.productiveTargetSeconds,
+      breakBudgetSeconds: t.breakBudgetSeconds,
+    };
+  });
+
+  const online = rows.filter((r) => ["WORKING", "TEA", "LUNCH", "BIO", "OTHER_BREAK", "MEETING"].includes(r.status)).length;
+  const clockedOut = rows.filter((r) => r.status === "CLOCKED_OUT").length;
+  const summary = {
+    online,
+    clockedOut,
+    notClockedIn: rows.filter((r) => r.status === "NOT_CLOCKED_IN").length,
+    onLeave: rows.filter((r) => r.status === "ON_LEAVE").length,
+    present: online + clockedOut,
+    total: rows.length,
+  };
+
+  return { generatedAt: now.toISOString(), timezone, date: date.toISOString().slice(0, 10), summary, rows };
+}
+
+// ---------------------------------------------------------------------------------------------
+// SHIFT BREAKDOWN (one day)
+// ---------------------------------------------------------------------------------------------
+export async function getShiftBreakdown(viewerId: string, dateStr?: string) {
+  const viewer = await getViewer(viewerId);
+  const timezone = viewer.platform.timezone;
+  const today = platformToday(timezone);
+  const date = dateStr ? parseIsoDay(dateStr) : today;
+  const isToday = date.getTime() === today.getTime();
+  const now = new Date();
+
+  const userIds = await visibleUserIds({ id: viewer.id, role: String(viewer.role), platformId: viewer.platformId });
+  const base = { generatedAt: now.toISOString(), timezone, date: date.toISOString().slice(0, 10), isToday, rows: [] as unknown[] };
+  if (userIds.length === 0) return base;
+
+  const people = await loadPeople(userIds);
+  const ids = people.map((p) => p.id);
+  const [sessions, leaveDays] = await Promise.all([
+    prisma.workSession.findMany({ where: { userId: { in: ids }, date }, include: { breaks: true, meetings: true } }),
+    prisma.leaveDay.findMany({ where: { userId: { in: ids }, date }, select: { userId: true } }),
+  ]);
+  const byUser = new Map(sessions.map((s) => [s.userId, s]));
+  const onLeave = new Set(leaveDays.map((l) => l.userId));
+
+  const rows = people.map((p) => {
+    const t = targetsFor(p);
+    const s = byUser.get(p.id) ?? null;
+    if (!s) {
+      return {
+        userId: p.id, name: `${p.firstName} ${p.lastName}`.trim(), employeeCode: p.employeeCode, teamName: t.teamName,
+        hasSession: false, dayState: onLeave.has(p.id) ? "ON_LEAVE" : isToday ? "NOT_CLOCKED_IN" : "NO_RECORD",
+        loginAt: null, logoutAt: null, working: false, shiftSeconds: null,
+        teaSeconds: null, lunchSeconds: null, bioSeconds: null, huddleSeconds: null, otherSeconds: null, breakSeconds: null,
+        productiveSeconds: null, productiveTargetSeconds: t.productiveTargetSeconds, breakBudgetSeconds: t.breakBudgetSeconds,
+      };
+    }
+    const sess = s as SessionWithParts;
+    const tt = totalsOf(sess, isToday ? now : (s.logoutAt ?? s.updatedAt));
+    const end = s.logoutAt ?? (s.status === "ACTIVE" && isToday ? now : s.updatedAt);
+
+    const per = { TEA: 0, LUNCH: 0, BIO: 0, OTHER: 0 };
+    for (const b of s.breaks) {
+      const secs = b.endedAt ? (b.durationSeconds ?? secondsBetween(b.startedAt, b.endedAt)) : s.status === "ACTIVE" && isToday ? secondsBetween(b.startedAt, now) : 0;
+      per[BREAK_GROUP[b.breakType] ?? "OTHER"] += secs;
+    }
+
+    return {
+      userId: p.id, name: `${p.firstName} ${p.lastName}`.trim(), employeeCode: p.employeeCode, teamName: t.teamName,
+      hasSession: true, dayState: s.status === "COMPLETED" ? "CLOCKED_OUT" : "WORKING",
+      loginAt: s.loginAt.toISOString(), logoutAt: s.logoutAt ? s.logoutAt.toISOString() : null,
+      working: s.status === "ACTIVE",
+      shiftSeconds: secondsBetween(s.loginAt, end),
+      teaSeconds: per.TEA, lunchSeconds: per.LUNCH, bioSeconds: per.BIO, otherSeconds: per.OTHER,
+      huddleSeconds: tt.meeting,
+      breakSeconds: tt.breakSec,
+      productiveSeconds: tt.productive, productiveTargetSeconds: t.productiveTargetSeconds, breakBudgetSeconds: t.breakBudgetSeconds,
+    };
+  });
+
+  return { ...base, rows };
+}
+
+// ---------------------------------------------------------------------------------------------
+// ATTENDANCE REPORT (a date range)
+//
+// One row per person per day. Status, worked and break hours, login/logout and lateness come from the SAME
+// attendance engine that salary and Reports use, so this report can never disagree with them.
+// The engine works a month at a time, so a range is read month by month and trimmed to the range.
+// ---------------------------------------------------------------------------------------------
+const MAX_RANGE_DAYS = 93;
+const STATUS_VALUES = new Set(["PRESENT", "HALF_DAY", "ABSENT", "LEAVE", "HOLIDAY", "WEEK_OFF", "NOT_TRACKED"]);
+const IST_OFFSET_MS = 330 * 60 * 1000;
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+// "19:00" in IST on `dateIso`, as an instant. Used only for early departure (companies here run on IST).
+function istInstant(dateIso: string, hhmm: string): Date | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm);
+  if (!m) return null;
+  const [y, mo, d] = dateIso.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, d, Number(m[1]), Number(m[2])) - IST_OFFSET_MS);
+}
+
+export async function getAttendanceReport(
+  viewerId: string,
+  q: { from?: string; to?: string; userId?: string; teamId?: string; shift?: string; status?: string }
+) {
+  const viewer = await getViewer(viewerId);
+  const timezone = viewer.platform.timezone;
+  const today = platformToday(timezone);
+  const from = q.from ? parseIsoDay(q.from) : today;
+  const to = q.to ? parseIsoDay(q.to) : from;
+  if (to.getTime() < from.getTime()) throw new Error("BAD_RANGE");
+  if ((to.getTime() - from.getTime()) / 86400000 + 1 > MAX_RANGE_DAYS) throw new Error("RANGE_TOO_LONG");
+  if (q.status && !STATUS_VALUES.has(q.status)) throw new Error("BAD_STATUS");
+  const fromIso = from.toISOString().slice(0, 10);
+  const toIso = to.toISOString().slice(0, 10);
+
+  const allowed = await visibleUserIds({ id: viewer.id, role: String(viewer.role), platformId: viewer.platformId });
+  const people = allowed.length
+    ? await prisma.user.findMany({
+        where: { id: { in: allowed }, status: { notIn: ["SUSPENDED", "EXITED"] } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          employeeCode: true,
+          shift: { select: { name: true, startTime: true, endTime: true, spansMidnight: true } },
+          teamMemberships: {
+            where: { isActive: true },
+            select: { team: { select: { id: true, name: true, config: { select: { breakBudgetMinutes: true } }, shift: { select: { name: true, startTime: true, endTime: true, spansMidnight: true } } } } },
+            take: 1,
+          },
+        },
+        orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+      })
+    : [];
+
+  // Narrowing filters can only shrink the list the viewer is already allowed to see.
+  const meta = people.map((p) => {
+    const team = p.teamMemberships[0]?.team ?? null;
+    const shift = p.shift ?? team?.shift ?? null;
+    return { id: p.id, name: `${p.firstName} ${p.lastName}`.trim(), code: p.employeeCode, teamId: team?.id ?? null, teamName: team?.name ?? null, shift, breakBudgetSeconds: (team?.config?.breakBudgetMinutes ?? DEFAULT_BREAK_BUDGET_MINUTES) * 60 };
+  });
+  const options = {
+    people: meta.map((m) => ({ id: m.id, name: m.name, code: m.code })),
+    teams: Array.from(new Map(meta.filter((m) => m.teamId).map((m) => [m.teamId as string, m.teamName as string])).entries()).map(([id, name]) => ({ id, name })),
+    shifts: Array.from(new Set(meta.map((m) => m.shift?.name).filter((n): n is string => !!n))).sort(),
+  };
+
+  const chosen = meta.filter(
+    (m) => (!q.userId || m.id === q.userId) && (!q.teamId || m.teamId === q.teamId) && (!q.shift || m.shift?.name === q.shift)
+  );
+  const base = { generatedAt: new Date().toISOString(), timezone, today: today.toISOString().slice(0, 10), from: fromIso, to: toIso, options };
+  if (chosen.length === 0) {
+    return { ...base, kpis: { employees: 0, present: 0, halfDay: 0, absent: 0, attendancePct: null as number | null, totalWorkedHours: 0, avgWorkedHours: null as number | null }, rows: [] as unknown[] };
+  }
+
+  // Months the range touches.
+  const months: [number, number][] = [];
+  let y = from.getUTCFullYear();
+  let m = from.getUTCMonth() + 1;
+  while (y < to.getUTCFullYear() || (y === to.getUTCFullYear() && m <= to.getUTCMonth() + 1)) {
+    months.push([y, m]);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  const ids = chosen.map((c) => c.id);
+  const [monthly, tasks] = await Promise.all([
+    Promise.all(months.map(([yy, mm]) => getMonthAttendanceBulk(ids, yy, mm))),
+    prisma.dailyTask.groupBy({
+      by: ["userId", "date"],
+      where: { userId: { in: ids }, date: { gte: from, lte: to }, status: "COMPLETED", approvalStatus: "APPROVED" },
+      _count: { _all: true },
+    }),
+  ]);
+  const taskCount = new Map(tasks.map((t) => [`${t.userId}|${t.date.toISOString().slice(0, 10)}`, t._count._all]));
+  const byId = new Map(chosen.map((c) => [c.id, c]));
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (const month of monthly.flat()) {
+    const who = byId.get(month.userId);
+    if (!who) continue;
+    for (const d of month.days) {
+      if (d.date < fromIso || d.date > toIso) continue;
+      if (d.status === "FUTURE" || d.status === "NOT_EMPLOYED") continue;
+      if (q.status && d.status !== q.status) continue;
+
+      // Early departure: only for a finished day on a shift that ends the same day.
+      let earlyMinutes: number | null = null;
+      if (d.logoutAt && who.shift && !who.shift.spansMidnight) {
+        const end = istInstant(d.date, who.shift.endTime);
+        if (end) earlyMinutes = Math.max(0, Math.round((end.getTime() - new Date(d.logoutAt).getTime()) / 60000));
+      }
+      const hasWork = d.loginAt !== null;
+      rows.push({
+        userId: month.userId,
+        name: who.name,
+        employeeCode: who.code,
+        teamName: who.teamName,
+        date: d.date,
+        shiftName: who.shift?.name ?? null,
+        shiftStart: who.shift?.startTime ?? null,
+        shiftEnd: who.shift?.endTime ?? null,
+        loginAt: d.loginAt,
+        logoutAt: d.logoutAt,
+        workedHours: hasWork ? d.workedHours : null,
+        breakHours: hasWork ? d.breakHours : null,
+        breakBudgetSeconds: who.breakBudgetSeconds,
+        status: d.status,
+        statusLabel: d.label,
+        leaveType: d.leaveType,
+        holidayName: d.holidayName,
+        lateMinutes: hasWork ? d.lateByMinutes : null,
+        earlyDepartureMinutes: earlyMinutes,
+        tasksCompleted: taskCount.get(`${month.userId}|${d.date}`) ?? 0,
+      });
+    }
+  }
+  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.name).localeCompare(String(b.name)));
+
+  const present = rows.filter((r) => r.status === "PRESENT").length;
+  const halfDay = rows.filter((r) => r.status === "HALF_DAY").length;
+  const absent = rows.filter((r) => r.status === "ABSENT").length;
+  const counted = present + halfDay + absent; // working days only: leave, holidays and week-offs are not "attendance"
+  const workedRows = rows.filter((r) => r.status === "PRESENT" || r.status === "HALF_DAY");
+  const totalWorked = workedRows.reduce((sum, r) => sum + Number(r.workedHours ?? 0), 0);
+
+  return {
+    ...base,
+    kpis: {
+      employees: new Set(rows.map((r) => r.userId)).size,
+      present,
+      halfDay,
+      absent,
+      attendancePct: counted > 0 ? round1(((present + halfDay * 0.5) / counted) * 100) : null,
+      totalWorkedHours: round1(totalWorked),
+      avgWorkedHours: workedRows.length > 0 ? round1(totalWorked / workedRows.length) : null,
+    },
+    rows,
+  };
+}

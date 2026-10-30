@@ -3,7 +3,7 @@
 require("dotenv").config({ path: require("node:path").join(__dirname, "..", ".env") });
 const { Client } = require("pg");
 const bcrypt = require("bcryptjs");
-const API = "http://localhost:5002/api";
+const API = (process.env.TEST_API ?? "http://localhost:5002/api");
 require("./_guard.cjs").assertTestDb(process.env.TEST_DATABASE_URL);
 
 const call = async (m, p, t, b) => {
