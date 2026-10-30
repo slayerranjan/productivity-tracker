@@ -194,12 +194,33 @@ const Ico = {
 
 const CARD = "rounded-2xl border border-slate-200 bg-white p-5";
 
+// How much of the daily break allowance is left (or by how much it has been exceeded). Everyone sees their own.
+function BreakBudget({ used, budget, onBreak }: { used: number; budget: number; onBreak: boolean }) {
+  const over = used - budget;
+  const pct = Math.min(100, Math.round((used / Math.max(1, budget)) * 100));
+  return (
+    <div className="mt-3 w-full max-w-[16rem]" aria-live="polite">
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={"h-full rounded-full " + (over > 0 ? "bg-red-500" : pct >= 85 ? "bg-amber-400" : "bg-sky-400")} style={{ width: pct + "%" }} />
+      </div>
+      {over > 0 ? (
+        <p className="mt-1.5 text-xs font-medium text-red-600">Break exceeded by {fmtDur(over)} · used {fmtDur(used)} of {fmtDur(budget)}</p>
+      ) : (
+        <p className="mt-1.5 text-xs text-slate-500">
+          <span className="font-medium text-slate-700">{fmtDur(budget - used)} of break left</span> · used {fmtDur(used)} of {fmtDur(budget)}
+          {onBreak && <span className="ml-1 text-sky-600">· on break now</span>}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function TodayView() {
   const me = useMe();
 
   // ---- the live session (unchanged behaviour) -------------------------------------
   const [session, setSession] = useState<Session | null>(null);
-  const [, setConfig] = useState<Config | null>(null);
+  const [config, setConfig] = useState<Config | null>(null);
   // True while a meeting this person called is still running, so the End
   // button appears and disappears on its own, on every device.
   const [hostsMeeting, setHostsMeeting] = useState(false);
@@ -478,7 +499,7 @@ export default function TodayView() {
   const roleLine = me.designation ?? `${String(me.role).charAt(0)}${String(me.role).slice(1).toLowerCase()}`;
 
   return (
-    <div className="mx-auto max-w-6xl p-3 sm:p-6">
+    <div className="mx-auto page-6xl p-3 sm:p-6">
       <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6">
         {/* ===================== header ===================== */}
         <header className="flex flex-wrap items-center justify-between gap-4">
@@ -602,6 +623,8 @@ export default function TodayView() {
                     "Your day starts when you clock in"
                   )}
                 </p>
+
+                {session && config && <BreakBudget used={breakSecs} budget={config.breakBudgetMinutes * 60} onBreak={!!openBreak} />}
 
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                   {!running && projects.length > 0 && (

@@ -9,7 +9,7 @@ const fs = require("fs"), path = require("path");
 const bcrypt = require("bcryptjs");
 const { Client } = require("pg");
 const guard = require("./_guard.cjs");
-const API = "http://localhost:5002/api";
+const API = (process.env.TEST_API ?? "http://localhost:5002/api");
 const URL_ = process.env.TEST_DATABASE_URL; guard.assertTestDb(URL_);
 
 const PUBLIC = new Set(["POST /api/auth/login", "GET /api/health", "GET /api/db-health"]);

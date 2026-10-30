@@ -25,3 +25,6 @@ backend/tmp/
 .env.*
 !.env.example
 backend/salaries.csv
+
+# Output written by backend/tests/api-suite.test.mjs
+backend/suite_results.json

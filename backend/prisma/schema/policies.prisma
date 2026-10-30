@@ -1,0 +1,106 @@
+// ===========================================================================
+// POLICY MANAGEMENT - drafts, publishing, categories, audience, versions, HR review notes.
+//
+// The policy itself is still an `induction_documents` row (its title, file, "mandatory" flag, team and the
+// acknowledgements all live where they always did). These tables sit BESIDE it and add what it never had.
+//
+//   induction_documents.id  ==  policy_details.policyId  (one extra row per policy)
+//
+// NEW TABLES ONLY: no column was added to an existing table, so a database that has not run this migration
+// keeps working exactly as before (the code treats "no policy_details row" as an already-published policy).
+// No Prisma relations to existing models on purpose; the foreign keys live in the migration SQL.
+// Statuses are plain text with a CHECK constraint in the migration.
+// ===========================================================================
+
+model PolicyDetail {
+  policyId   String @id @db.Uuid // = induction_documents.id
+  platformId String @db.Uuid
+
+  status        String // DRAFT | PUBLISHED | ARCHIVED
+  category      String // display name, e.g. "Human Resource Policy" (one of the built-ins or a company category)
+  effectiveDate DateTime? @db.Date
+  publishedAt   DateTime?
+  allowDownload Boolean   @default(true)
+
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([platformId, status])
+  @@map("policy_details")
+}
+
+// One row per version of a policy. `number` is the number acknowledgements are recorded against
+// (induction_acknowledgements.documentVersion); `label` is what people read ("1.0", "1.1").
+model PolicyVersion {
+  id         String @id @default(uuid()) @db.Uuid
+  policyId   String @db.Uuid
+  platformId String @db.Uuid
+
+  number Int
+  label  String
+  status String // DRAFT | PUBLISHED | SUPERSEDED
+
+  storageKey String
+  fileName   String
+  fileSize   Int?
+  mimeType   String?
+
+  changeNote  String?
+  requiresAck Boolean @default(true) // must people confirm THIS version again?
+
+  createdById   String?   @db.Uuid
+  createdAt     DateTime  @default(now())
+  publishedById String?   @db.Uuid
+  publishedAt   DateTime?
+
+  @@unique([policyId, number])
+  @@index([policyId, status])
+  @@map("policy_versions")
+}
+
+// Who a policy is for. NO rows = every employee of the company. Rows are alternatives: a person is in the
+// audience if they match ANY row (kind TEAM -> a team id, EMPLOYMENT_TYPE -> PERMANENT/PROBATION/CONTRACT/INTERN,
+// ROLE -> EMPLOYEE/MANAGER/HR/ADMIN). Teams stand in for departments.
+model PolicyAudience {
+  id       String @id @default(uuid()) @db.Uuid
+  policyId String @db.Uuid
+  kind     String // TEAM | EMPLOYMENT_TYPE | ROLE
+  value    String
+
+  @@unique([policyId, kind, value])
+  @@map("policy_audience")
+}
+
+// Categories HR adds on top of the built-in list.
+model PolicyCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  platformId  String   @db.Uuid
+  name        String
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  @@unique([platformId, name])
+  @@map("policy_categories")
+}
+
+// Things HR must look at before a policy is published (for example blanks and unclear clauses found in an
+// imported document). They never change the document; HR resolves or dismisses each one.
+model PolicyReviewNote {
+  id         String  @id @default(uuid()) @db.Uuid
+  policyId   String  @db.Uuid
+  platformId String  @db.Uuid
+  versionId  String? @db.Uuid
+
+  title  String
+  detail String
+  status String @default("OPEN") // OPEN | RESOLVED | DISMISSED
+
+  resolvedById   String?   @db.Uuid
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+
+  @@index([policyId, status])
+  @@map("policy_review_notes")
+}

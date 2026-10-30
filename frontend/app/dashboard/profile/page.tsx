@@ -107,7 +107,7 @@ export default function ProfilePage() {
   const published = slips.filter((s) => s.publishedAt !== null);
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-8 page-4xl">
       {/* ---- identity ---- */}
       <section className="mb-6 overflow-hidden rounded-2xl bg-indigo-600">
         <div className="flex flex-col gap-5 p-7 sm:flex-row sm:items-center">

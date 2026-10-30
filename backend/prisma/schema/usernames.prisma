@@ -1,0 +1,20 @@
+// ===========================================================================
+// LOGIN USERNAMES — an extra way to sign in ("ankit_avatar").
+//
+// One username per person, unique across the whole system and case-insensitive (the migration adds a
+// lower-case unique index and a format check). Employee IDs, emails and passwords are NOT touched, and
+// signing in with the employee ID or email keeps working exactly as before.
+//
+// No Prisma relations to existing models on purpose: the foreign key lives in the migration SQL only, so
+// no existing model or table changes.
+// ===========================================================================
+
+model LoginUsername {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  username  String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("login_usernames")
+}

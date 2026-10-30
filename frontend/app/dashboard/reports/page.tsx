@@ -17,6 +17,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
+import { useMe } from "../layout";
+import AttendanceReport from "./_team/AttendanceReport";
+import ShiftBreakdownCard from "./_team/ShiftBreakdownCard";
+import ProductivityReport from "./_team/ProductivityReport";
+
+type Tab = "summary" | "attendance" | "shift" | "productivity";
 import { addDaysIso, firstOfMonthIso as firstOfMonth, formatTime, todayIso } from "@/lib/time";
 
 type GroupBy = "person" | "day" | "week" | "month" | "year";
@@ -135,7 +141,45 @@ function bandClass(value: number): string {
 
 // ===========================================================================
 
+// Managers, HR and Admin get the team reports (history). An employee only ever sees their own figures.
 export default function ReportsPage() {
+  const me = useMe();
+  const [tab, setTab] = useState<Exclude<Tab, "summary">>("attendance");
+  const canSeeTeam = !!me && ["MANAGER", "HR", "ADMIN"].includes(me.role);
+  const tabs: [Exclude<Tab, "summary">, string][] = [
+    ["attendance", "Attendance report"],
+    ["shift", "Shift breakdown"],
+    ["productivity", "Task productivity"],
+  ];
+
+  if (!me) return <div className="p-8" aria-busy="true"><div className="skeleton h-10" /></div>;
+  if (!canSeeTeam) return <SummaryReport />;
+
+  return (
+    <div className="mx-auto page-7xl space-y-6 p-4 sm:p-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Reports &amp; Analytics</h1>
+        <p className="mt-1 text-sm text-slate-500">History and trends for your team: the teams you run and the people who report to you. For who is working right now, open Team Attendance.</p>
+      </div>
+      <div role="tablist" className="inline-flex flex-wrap rounded-xl bg-white p-1 shadow-[var(--shadow-card)]">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={"rounded-lg px-4 py-2 text-sm font-medium " + (tab === key ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "attendance" ? <AttendanceReport /> : tab === "shift" ? <ShiftBreakdownCard /> : <ProductivityReport canSetTargets={!!me && ["HR", "ADMIN"].includes(me.role)} />}
+    </div>
+  );
+}
+
+function SummaryReport() {
   const [from, setFrom] = useState(firstOfMonth());
   const [to, setTo] = useState(todayIso());
   const [groupBy, setGroupBy] = useState<GroupBy>("person");

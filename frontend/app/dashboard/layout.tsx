@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Bell from "./_notifications/Bell";
+import { NotificationsProvider } from "./_notifications/NotificationsContext";
 import Link from "next/link";
 import { apiGet, clearToken, getToken } from "@/lib/api";
 import { setPlatformTimezone } from "@/lib/time";
@@ -30,6 +31,12 @@ export const useMe = () => useContext(MeContext);
 // ---------------------------------------------------------------------------
 type IconProps = { className?: string };
 const I = {
+  bell: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M10 2.8a4.7 4.7 0 0 0-4.7 4.7c0 4.4-1.8 5.6-1.8 5.6h13s-1.8-1.2-1.8-5.6A4.7 4.7 0 0 0 10 2.8Z" />
+      <path d="M8.3 15.8a1.8 1.8 0 0 0 3.4 0" />
+    </svg>
+  ),
   grid: (p: IconProps) => (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...p}>
       <rect x="3" y="3" width="6" height="6" rx="1.4" />
@@ -134,6 +141,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard", label: "Today", ready: true, notRoles: ["HR", "ADMIN"], icon: I.today },
       { href: "/dashboard/admin", label: "Employees", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
       { href: "/dashboard/team", label: "Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.holidays },
+      { href: "/dashboard/team-attendance", label: "Team Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.team },
       { href: "/dashboard/corrections", label: "Corrections", ready: true, roles: ["HR", "ADMIN"], badge: "corrections", icon: I.history },
       { href: "/dashboard/today", label: "Productivity Tracker", ready: true, roles: ["HR", "ADMIN"], icon: I.today },
       { href: "/dashboard/approvals", label: "Tasks & Performance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.approvals },
@@ -145,6 +153,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/dashboard/tasks", label: "Daily Tasks", ready: true, icon: I.tasks },
       { href: "/dashboard/history", label: "My History", ready: true, icon: I.history },
+      { href: "/dashboard/notifications", label: "Notifications", ready: true, icon: I.bell },
       { href: "/dashboard/corrections", label: "Corrections", ready: true, notRoles: ["HR", "ADMIN"], icon: I.approvals },
       { href: "/dashboard/leave", label: "Leave", ready: true, icon: I.holidays },
       { href: "/dashboard/documents", label: "Documents", ready: true, icon: I.payslip },
@@ -442,6 +451,7 @@ export default function DashboardLayout({
 
   return (
     <MeContext.Provider value={me}>
+      <NotificationsProvider>
       <div className="flex min-h-screen bg-[var(--background)]">
         {/* Desktop */}
         <div className="sticky top-0 hidden h-screen p-4 pr-0 lg:block">{sidebar}</div>
@@ -475,11 +485,13 @@ export default function DashboardLayout({
             <p className="truncate text-sm font-semibold text-slate-900">
               Avatar HRMS <span className="font-normal text-slate-400">· {me.platform.name}</span>
             </p>
+            <div className="ml-auto shrink-0"><Bell /></div>
           </header>
 
           <div className="animate-in">{children}</div>
         </div>
       </div>
+      </NotificationsProvider>
     </MeContext.Provider>
   );
 }

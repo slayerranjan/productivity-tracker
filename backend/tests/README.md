@@ -35,6 +35,10 @@ against a disposable Neon *branch*, never the database in `backend/.env`.
    node tests/documents.test.cjs                 # document requirements: config, employee view, review, scoping
    node tests/meetings.test.cjs                  # meeting links: validation, privacy, invitations, cancel
    node tests/timezone.test.cjs                  # a non-IST company keeps its own calendar day
+   DATABASE_URL=dummy npx tsx tests/realtime.test.mts   # real-time: sockets, rooms, auth, reconnection (needs NO database)
+   node tests/realtime-e2e.test.mjs              # real-time with two sessions and real tasks (needs the branch backend on :5002)
+   node tests/policies-v2.test.mjs               # policies: drafts, publish, versions, acknowledgments, permissions (set POLICY_DOCX to the real document)
+   DATABASE_URL=dummy npx tsx tests/policy-docs.test.mts "C:/path/policy.docx"   # Word-to-readable converter and sanitizer (needs NO database)
    node tests/route-sweep.test.cjs               # every route: 401 without a token, no 5xx on garbage ids/queries (~10 min)
    node tests/body-fuzz.test.cjs                 # garbage in every write route as all four roles (~14 min)
    ```
