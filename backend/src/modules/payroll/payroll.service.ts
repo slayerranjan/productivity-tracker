@@ -137,6 +137,10 @@ export async function listSlipsForMonth(viewerId: string, month: number, year: n
       deductions: true,
       netAmount: true,
       publishedAt: true,
+      status: true,
+      payableDays: true,
+      otherDeduction: true,
+      storageKey: true,
       createdAt: true,
       uploadedBy: { select: { firstName: true, lastName: true } },
     },
@@ -164,6 +168,10 @@ export async function listSlipsForMonth(viewerId: string, month: number, year: n
               deductions: money(slip.deductions),
               netAmount: money(slip.netAmount),
               publishedAt: slip.publishedAt,
+              status: slip.status,
+              payableDays: slip.payableDays === null ? null : Number(slip.payableDays),
+              otherDeduction: slip.otherDeduction === null ? null : Number(slip.otherDeduction),
+              hasFile: Boolean(slip.storageKey),
               uploadedBy: `${slip.uploadedBy.firstName} ${slip.uploadedBy.lastName}`.trim(),
             }
           : null,
@@ -253,6 +261,12 @@ export async function uploadSlip(
   return { ok: true, replaced: false };
 }
 
+// A slip HR generated from attendance has no file behind it, so the only thing
+// vouching for its figures is the approval. It must not reach an employee
+// before that. A slip HR uploaded as a PDF is HR's own document and is
+// released as it always was.
+const NOT_YET_APPROVED = { status: { not: "APPROVED" }, storageKey: null } as const;
+
 export async function publishSlips(
   viewerId: string,
   slipIds: string[],
@@ -263,11 +277,15 @@ export async function publishSlips(
   if (slipIds.length === 0) return { updated: 0 };
 
   const result = await prisma.salarySlip.updateMany({
-    where: { id: { in: slipIds }, platformId: viewer.platformId },
+    where: {
+      id: { in: slipIds },
+      platformId: viewer.platformId,
+      ...(publish ? { NOT: NOT_YET_APPROVED } : {}),
+    },
     data: { publishedAt: publish ? new Date() : null },
   });
 
-  return { updated: result.count };
+  return { updated: result.count, skipped: slipIds.length - result.count };
 }
 
 export async function publishMonth(viewerId: string, month: number, year: number) {
@@ -276,11 +294,21 @@ export async function publishMonth(viewerId: string, month: number, year: number
   assertPeriod(month, year);
 
   const result = await prisma.salarySlip.updateMany({
-    where: { platformId: viewer.platformId, month, year, publishedAt: null },
+    where: {
+      platformId: viewer.platformId,
+      month,
+      year,
+      publishedAt: null,
+      NOT: NOT_YET_APPROVED,
+    },
     data: { publishedAt: new Date() },
   });
 
-  return { updated: result.count };
+  const waiting = await prisma.salarySlip.count({
+    where: { platformId: viewer.platformId, month, year, publishedAt: null, ...NOT_YET_APPROVED },
+  });
+
+  return { updated: result.count, waitingForApproval: waiting };
 }
 
 export async function deleteSlip(viewerId: string, slipId: string) {
