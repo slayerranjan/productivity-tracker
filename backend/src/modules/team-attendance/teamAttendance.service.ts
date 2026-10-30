@@ -274,7 +274,7 @@ export async function getShiftBreakdown(viewerId: string, dateStr?: string) {
 // The engine works a month at a time, so a range is read month by month and trimmed to the range.
 // ---------------------------------------------------------------------------------------------
 const MAX_RANGE_DAYS = 93;
-const STATUS_VALUES = new Set(["PRESENT", "HALF_DAY", "ABSENT", "LEAVE", "HOLIDAY", "WEEK_OFF", "NOT_TRACKED"]);
+const STATUS_VALUES = new Set(["PRESENT", "HALF_DAY", "ABSENT", "LEAVE", "HOLIDAY", "WEEK_OFF", "NOT_TRACKED", "NOT_CLOCKED_IN"]);
 const IST_OFFSET_MS = 330 * 60 * 1000;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -339,7 +339,7 @@ export async function getAttendanceReport(
   );
   const base = { generatedAt: new Date().toISOString(), timezone, today: today.toISOString().slice(0, 10), from: fromIso, to: toIso, options };
   if (chosen.length === 0) {
-    return { ...base, kpis: { employees: 0, present: 0, halfDay: 0, absent: 0, attendancePct: null as number | null, totalWorkedHours: 0, avgWorkedHours: null as number | null }, rows: [] as unknown[] };
+    return { ...base, kpis: { employees: 0, present: 0, halfDay: 0, absent: 0, notYet: 0, workingDays: 0, attendancePct: null as number | null, totalWorkedHours: 0, avgWorkedHours: null as number | null }, rows: [] as unknown[] };
   }
 
   // Months the range touches.
@@ -366,6 +366,20 @@ export async function getAttendanceReport(
   const taskCount = new Map(tasks.map((t) => [`${t.userId}|${t.date.toISOString().slice(0, 10)}`, t._count._all]));
   const byId = new Map(chosen.map((c) => [c.id, c]));
 
+  // Sessions still running today. The engine decides present/half/absent by hours worked, which is right for a
+  // FINISHED day but wrong for someone who clocked in an hour ago: they are present and still working. Their hours
+  // are topped up with the time since the last recompute (the same adjustment the live board makes).
+  const todayIso = today.toISOString().slice(0, 10);
+  const nowMs = Date.now();
+  const running =
+    fromIso <= todayIso && toIso >= todayIso
+      ? await prisma.workSession.findMany({
+          where: { userId: { in: ids }, date: today, status: "ACTIVE" },
+          select: { userId: true, updatedAt: true, breaks: { where: { endedAt: null }, select: { id: true } } },
+        })
+      : [];
+  const runningBy = new Map(running.map((r) => [r.userId, r]));
+
   const rows: Array<Record<string, unknown>> = [];
   for (const month of monthly.flat()) {
     const who = byId.get(month.userId);
@@ -373,7 +387,35 @@ export async function getAttendanceReport(
     for (const d of month.days) {
       if (d.date < fromIso || d.date > toIso) continue;
       if (d.status === "FUTURE" || d.status === "NOT_EMPLOYED") continue;
-      if (q.status && d.status !== q.status) continue;
+
+      // What this row shows. Finished days keep the engine's answer (so this report agrees with payroll); two
+      // cases about TODAY are shown honestly instead of as a provisional hours-based verdict.
+      const live = d.date === todayIso ? runningBy.get(month.userId) : undefined;
+      let status: string = d.status;
+      let label: string = d.label;
+      let note: string | null = d.note;
+      let worked = d.workedHours;
+      let productive = d.productiveHours;
+      let breakH = d.breakHours;
+      if (live) {
+        const since = Math.max(0, nowMs - live.updatedAt.getTime()) / 3_600_000;
+        if (live.breaks.length > 0) breakH += since;
+        else {
+          worked += since;
+          productive += since;
+        }
+        if (status === "ABSENT" || status === "HALF_DAY") {
+          status = "PRESENT";
+          label = "Present";
+          note = null;
+        }
+      } else if (d.date === todayIso && status === "ABSENT" && d.loginAt === null) {
+        // Nobody can be called absent while the day is still going: a later clock-in makes them present.
+        status = "NOT_CLOCKED_IN";
+        label = "Not clocked in yet";
+        note = null;
+      }
+      if (q.status && status !== q.status) continue;
 
       // Early departure: only for a finished day on a shift that ends the same day.
       let earlyMinutes: number | null = null;
@@ -393,11 +435,15 @@ export async function getAttendanceReport(
         shiftEnd: who.shift?.endTime ?? null,
         loginAt: d.loginAt,
         logoutAt: d.logoutAt,
-        workedHours: hasWork ? d.workedHours : null,
-        breakHours: hasWork ? d.breakHours : null,
+        workedHours: hasWork ? worked : null,
+        productiveHours: hasWork ? productive : null,
+        breakHours: hasWork ? breakH : null,
         breakBudgetSeconds: who.breakBudgetSeconds,
-        status: d.status,
-        statusLabel: d.label,
+        stillWorking: !!live,
+        autoClosed: d.autoClosed,
+        note,
+        status,
+        statusLabel: label,
         leaveType: d.leaveType,
         holidayName: d.holidayName,
         lateMinutes: hasWork ? d.lateByMinutes : null,
@@ -422,6 +468,8 @@ export async function getAttendanceReport(
       present,
       halfDay,
       absent,
+      notYet: rows.filter((r) => r.status === "NOT_CLOCKED_IN").length,
+      workingDays: counted,
       attendancePct: counted > 0 ? round1(((present + halfDay * 0.5) / counted) * 100) : null,
       totalWorkedHours: round1(totalWorked),
       avgWorkedHours: workedRows.length > 0 ? round1(totalWorked / workedRows.length) : null,

@@ -51,3 +51,9 @@ export function downloadCsv(filename: string, header: string[], rows: unknown[][
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// "Fri 30 Oct" from "2026-10-30" (read as a calendar day, not shifted by the browser timezone).
+export function dayShort(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "short" }).format(new Date(Date.UTC(y, m - 1, d))).replace(",", "");
+}
