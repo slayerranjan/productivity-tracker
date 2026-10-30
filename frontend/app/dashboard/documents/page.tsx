@@ -271,8 +271,26 @@ function ChecklistModal({ userId, onClose, onChanged }: { userId: string; onClos
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const picker = useRef<HTMLInputElement>(null);
+  const [uploadFor, setUploadFor] = useState<string | null>(null);
 
   const done = () => { setReload((n) => n + 1); onChanged(); };
+  // HR uploads on the employee's behalf. The server marks an HR upload as verified (nobody else reviews it).
+  async function upload(file: File | undefined) {
+    const id = uploadFor;
+    setUploadFor(null);
+    if (!file || !id || busy) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await apiPost(`/onboarding/candidates/${userId}/documents`, { requirementId: id, fileName: file.name, data: await readFile(file), mimeType: file.type });
+      done();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function review(documentId: string, approve: boolean) {
     if (busy) return;
     setBusy(true);
@@ -311,6 +329,7 @@ function ChecklistModal({ userId, onClose, onChanged }: { userId: string; onClos
               {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
+          <input ref={picker} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} />
           {err && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{err}</p>}
           <div className="divide-y divide-indigo-100 rounded-2xl border border-indigo-100">
             {d.items.map((i) => (
@@ -319,6 +338,7 @@ function ChecklistModal({ userId, onClose, onChanged }: { userId: string; onClos
                   <p className="text-sm font-medium text-slate-900">{i.name} <span className="ml-1 text-xs font-normal text-slate-400">{i.isMandatory ? "Required" : "Optional"}{i.uploadedByEmployee ? "" : " · HR uploads"}</span></p>
                   <div className="flex items-center gap-2">
                     <Chip s={i.status} label={i.status === "SUBMITTED" ? "Waiting for review" : i.statusLabel} />
+                    <button disabled={busy} onClick={() => { setUploadFor(i.requirementId); picker.current?.click(); }} className="rounded-lg border border-indigo-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">{i.documentId ? "Replace" : "Upload"}</button>
                     {i.documentId && i.fileName && <button onClick={() => viewFile(i.documentId as string).catch((e: Error) => setErr(e.message))} className="rounded-lg border border-indigo-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">View</button>}
                     {i.documentId && i.status === "SUBMITTED" && (
                       <>
