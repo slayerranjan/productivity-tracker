@@ -542,4 +542,4 @@ export async function getMonthAttendance(
   const [one] = await getMonthAttendanceBulk([userId], year, month);
   if (!one) throw new Error("USER_NOT_FOUND");
   return one;
-}
+}   

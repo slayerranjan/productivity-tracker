@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { getPinnedCompany } from "../../lib/deployment.js";
-import { closeStaleMeetings } from "./tracker.service.js";
+import { closeStaleBreaks, closeStaleMeetings } from "./tracker.service.js";
 import { localMinutes, recompute } from "./tracker.service.js";
 import { platformToday } from "../../lib/dates.js";
 
@@ -297,10 +297,12 @@ export function startTrackerScheduler() {
       // limit. Without this, making the end button manager-only turns one
       // forgetful manager into a whole team's inflated meeting hours.
       const meetings = await closeStaleMeetings();
+      // Same for a break nobody ended, so it cannot swallow the productive day.
+      const breaks = await closeStaleBreaks();
       const raised = await generateAlerts();
-      if (closed || raised || meetings) {
+      if (closed || raised || meetings || breaks) {
         console.log(
-          `[scheduler] closed ${closed} stale session(s), ${meetings} stale meeting(s), ${raised} alert(s)`
+          `[scheduler] closed ${closed} stale session(s), ${meetings} stale meeting(s), ${breaks} stale break(s), ${raised} alert(s)`
         );
       }
     } catch (error) {

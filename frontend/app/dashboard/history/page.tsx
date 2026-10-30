@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
+import { formatTime, isoDaysAgo } from "@/lib/time";
 
 type Row = {
   date: string;
@@ -48,12 +49,6 @@ function hm(total: number) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function isoDaysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
 export default function HistoryPage() {
   const [data, setData] = useState<Data | null>(null);
   const [from, setFrom] = useState(isoDaysAgo(29));
@@ -96,8 +91,8 @@ export default function HistoryPage() {
     const lines = data.rows.map((r) =>
       [
         r.date,
-        r.loginAt ? new Date(r.loginAt).toLocaleTimeString("en-IN") : "",
-        r.logoutAt ? new Date(r.logoutAt).toLocaleTimeString("en-IN") : "",
+        r.loginAt ? formatTime(r.loginAt) : "",
+        r.logoutAt ? formatTime(r.logoutAt) : "",
         hm(r.productiveSeconds),
         hm(r.breakSeconds),
         hm(r.meetingSeconds),
@@ -244,14 +239,14 @@ export default function HistoryPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-600 tabular-nums">
                         {r.loginAt
-                          ? new Date(r.loginAt).toLocaleTimeString("en-IN", {
+                          ? formatTime(r.loginAt, {
                               hour: "2-digit",
                               minute: "2-digit",
                             })
                           : "—"}
                         {" – "}
                         {r.logoutAt
-                          ? new Date(r.logoutAt).toLocaleTimeString("en-IN", {
+                          ? formatTime(r.logoutAt, {
                               hour: "2-digit",
                               minute: "2-digit",
                             })

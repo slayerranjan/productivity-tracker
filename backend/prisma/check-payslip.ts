@@ -29,7 +29,7 @@ async function main() {
     }
     return;
   }
-
+  
     const outDir = process.cwd();
 
   for (const s of r.slips) {

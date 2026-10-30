@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTaskRealtime } from "@/lib/realtime";
 import { API_BASE } from "@/lib/api";
+import { todayIso } from "@/lib/time";
 import { useMe } from "../layout";
 
 const API = API_BASE;
@@ -139,16 +140,15 @@ type RowLike = {
 
 function dayLabel(iso?: string | null): string {
   if (!iso) return "";
-  const today = new Date();
-  const d = new Date(iso + "T00:00:00");
+  const d = new Date(iso + "T00:00:00Z");
   const days = Math.round(
-    (new Date(today.toDateString()).getTime() - d.getTime()) / 86400000
+    (new Date(todayIso() + "T00:00:00Z").getTime() - d.getTime()) / 86400000
   );
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   // Past two days an actual date is more useful than "day before yesterday",
   // which stops meaning anything once you are chasing week-old work.
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 function personLabel(t: RowLike): string {
@@ -180,7 +180,7 @@ export default function ApprovalsPage() {
   const [tab, setTab] = useState<TabKey>("waiting");
   const [reload, setReload] = useState(0);
   // The company's "today" (from the server). Until the first answer arrives, the browser's own local date.
-  const [today, setToday] = useState<string>(() => new Date().toLocaleDateString("en-CA"));
+  const [today, setToday] = useState<string>(() => todayIso());
 
   // Live updates: when a task of anyone in view changes, the server sends a signal and the SAME reload as an
   // approve/grade click runs (same dates, same person, same tab). While the live connection is up the page

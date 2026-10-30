@@ -23,6 +23,7 @@ import ShiftBreakdownCard from "./_team/ShiftBreakdownCard";
 import ProductivityReport from "./_team/ProductivityReport";
 
 type Tab = "summary" | "attendance" | "shift" | "productivity";
+import { addDaysIso, firstOfMonthIso as firstOfMonth, formatTime, todayIso } from "@/lib/time";
 
 type GroupBy = "person" | "day" | "week" | "month" | "year";
 
@@ -138,20 +139,6 @@ function bandClass(value: number): string {
   return "text-rose-700 bg-rose-50 ring-rose-200";
 }
 
-function firstOfMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function todayIso(): string {
-  const now = new Date();
-  return [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
 // ===========================================================================
 
 // Managers, HR and Admin get the team reports (history). An employee only ever sees their own figures.
@@ -220,21 +207,19 @@ function SummaryReport() {
   }, [load]);
 
   function applyPreset(preset: "week" | "month" | "quarter" | "year") {
-    const now = new Date();
     const end = todayIso();
+    const [yr, mo] = end.split("-").map(Number);
     let start = end;
 
     if (preset === "week") {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 6);
-      start = d.toISOString().slice(0, 10);
+      start = addDaysIso(end, -6);
     } else if (preset === "month") {
       start = firstOfMonth();
     } else if (preset === "quarter") {
-      const q = Math.floor(now.getMonth() / 3) * 3;
-      start = `${now.getFullYear()}-${String(q + 1).padStart(2, "0")}-01`;
+      const q = Math.floor((mo - 1) / 3) * 3;
+      start = `${yr}-${String(q + 1).padStart(2, "0")}-01`;
     } else {
-      start = `${now.getFullYear()}-01-01`;
+      start = `${yr}-01-01`;
     }
 
     setFrom(start);

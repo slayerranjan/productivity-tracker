@@ -10,6 +10,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { useMe } from "../layout";
@@ -212,6 +213,12 @@ export default function PayrollPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/dashboard/payroll/approve"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-900"
+          >
+            Generate &amp; approve
+          </Link>
           <select
             value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
