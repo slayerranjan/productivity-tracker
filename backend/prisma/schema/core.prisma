@@ -87,6 +87,7 @@ model User {
   status UserStatus @default(CANDIDATE)
 
   designation      String?
+  monthlySalary Decimal? @db.Decimal(10, 2)
   dateOfJoining    DateTime?
   probationEndDate DateTime?
   exitDate         DateTime?

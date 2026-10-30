@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from "../../middlewares/auth.js";
 import * as payroll from "./payroll.service.js";
 import { guardUuidParams, isBadInput } from "../../lib/params.js";
 import * as generate from "./payroll.generate.js";
+import { buildPayslipPdf } from "./payroll.pdf.js";
 
 const router = Router();
 guardUuidParams(router);
@@ -84,6 +85,24 @@ router.get("/:id/download", async (req, res) => {
     fail(res, err);
   }
 });
+
+// The payslip document. Employees get their own once published; HR gets any
+// in their company. The service decides, not the router.
+router.get("/:id/payslip.pdf", async (req, res) => {
+  try {
+    const { pdf, fileName } = await buildPayslipPdf(
+      req.user!.userId,
+      String(req.params.id)
+    );
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.send(pdf);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 
 // --- HR / ADMIN -----------------------------------------------------------
 router.use(requireRole("HR", "ADMIN"));

@@ -96,6 +96,7 @@ ${detailRows([
 ])}
 ${p("Sign in, read your offer letter, and upload the documents listed. You'll be asked to set your own password the first time — the one above stops working then.")}
 ${button("Sign in", input.setPasswordUrl)}
+${p(`If the button doesn't open, copy this address into your browser:<br><span style="font-size:13px;color:#334155;word-break:break-all;">${input.setPasswordUrl}</span>`)}
 ${docs}
 `;
 
