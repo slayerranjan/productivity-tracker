@@ -54,6 +54,9 @@ export type RealtimeDeps = {
 let io: Server | null = null;
 
 export const roomOf = (personId: string) => `person:${personId}`;
+// A room only the person themselves is in (joined by the server, never by the client). Notification signals go
+// here and nowhere else, so a manager who can see an employee's tasks does NOT learn that the employee got a notification.
+export const inboxRoom = (userId: string) => `inbox:${userId}`;
 
 // Same checks as middlewares/auth.ts, for a token string.
 async function defaultAuthenticate(token: string): Promise<SocketUser | null> {
@@ -108,6 +111,7 @@ export function startRealtime(httpServer: HttpServer, deps: RealtimeDeps): Serve
     const user = socket.data.user as SocketUser;
     try {
       await syncRooms(socket, deps, user);
+      await socket.join(inboxRoom(user.userId));
       socket.emit("ready", { rooms: socket.data.roomCount as number });
     } catch {
       socket.disconnect(true);
@@ -163,5 +167,36 @@ export function emitTaskChange(change: { taskId: string; ownerId: string; action
     io.to(roomOf(change.ownerId)).emit("tasks:changed", payload);
   } catch (e) {
     console.error("[realtime] emit failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+// Policies. Same connection, same person-based rooms, same rule: the signal carries NO content (no titles, no
+// names, no counts) and a page that hears it simply asks the normal API again. `userIds` are the people the
+// change concerns (a policy's audience, or the person who just acknowledged); anyone whose rights include those
+// people (HR/Admin of the company) is in their rooms already. Never throws, and a no-op when real-time is off.
+export type PolicyAction = "published" | "updated" | "archived" | "restored" | "acknowledged" | "draft";
+export type PolicyChange = { eventId: string; policyId: string; action: PolicyAction; at: string };
+
+export function emitPolicyChange(change: { userIds: string[]; policyId: string; action: PolicyAction }): void {
+  try {
+    if (!io || change.userIds.length === 0) return;
+    const payload: PolicyChange = { eventId: randomUUID(), policyId: change.policyId, action: change.action, at: new Date().toISOString() };
+    io.to([...new Set(change.userIds)].map(roomOf)).emit("policies:changed", payload);
+  } catch (e) {
+    console.error("[realtime] policy emit failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+// Notifications. The signal carries NO content: the page that hears it asks the normal API for its own inbox.
+// Goes only to each recipient's private inbox room. Never throws; a no-op when real-time is off.
+export type NotificationSignal = { eventId: string; at: string };
+
+export function emitNotificationChange(userIds: string[]): void {
+  try {
+    if (!io || userIds.length === 0) return;
+    const payload: NotificationSignal = { eventId: randomUUID(), at: new Date().toISOString() };
+    io.to([...new Set(userIds)].map(inboxRoom)).emit("notifications:changed", payload);
+  } catch (e) {
+    console.error("[realtime] notification emit failed:", e instanceof Error ? e.message : e);
   }
 }

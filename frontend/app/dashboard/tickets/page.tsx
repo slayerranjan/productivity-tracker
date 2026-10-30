@@ -180,7 +180,7 @@ export default function TicketsPage() {
   ];
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="page-fluid p-8 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tickets</h1>

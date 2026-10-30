@@ -19,7 +19,8 @@ import { API_BASE, getToken } from "./api";
 // "https://backend.example.com/api" -> "https://backend.example.com"
 const SOCKET_URL = API_BASE.replace(/\/api\/?$/, "");
 
-type TaskChange = { eventId: string; taskId: string; ownerId: string; action: string; at: string };
+// Every signal carries an eventId (so a duplicate delivery can be ignored) and nothing else that matters here.
+type Signal = { eventId: string };
 
 let socket: Socket | null = null;
 let subscribers = 0;
@@ -47,11 +48,19 @@ function release() {
   }
 }
 
+/** Tasks: calls `onChange` whenever a task the user may see has changed. */
+export const useTaskRealtime = (onChange: () => void) => useRealtime(["tasks:changed"], onChange);
+
+/** Policies: calls `onChange` whenever a policy that concerns the user has changed. */
+export const usePolicyRealtime = (onChange: () => void) => useRealtime(["policies:changed"], onChange);
+
 /**
- * Calls `onChange` (debounced) whenever a task the user may see has changed, and once after every reconnect.
+ * Calls `onChange` (debounced) whenever one of the named signals arrives, and once after every reconnect.
  * Returns whether the live connection is currently up, so the page can slow its polling down while it is.
+ * All hooks share the ONE connection above; none opens its own.
  */
-export function useTaskRealtime(onChange: () => void): { connected: boolean } {
+export function useRealtime(events: string[], onChange: () => void): { connected: boolean } {
+  const eventKey = events.join("|");
   const [connected, setConnected] = useState(false);
   const handler = useRef(onChange);
   useEffect(() => {
@@ -70,7 +79,7 @@ export function useTaskRealtime(onChange: () => void): { connected: boolean } {
       timer = setTimeout(() => handler.current(), 250);
     };
 
-    const onTask = (e: TaskChange) => {
+    const onSignal = (e: Signal) => {
       if (!e?.eventId || seen.has(e.eventId)) return;
       seen.add(e.eventId);
       if (seen.size > 200) seen.delete(seen.values().next().value as string);
@@ -83,7 +92,8 @@ export function useTaskRealtime(onChange: () => void): { connected: boolean } {
     };
     const onDown = () => setConnected(false);
 
-    s.on("tasks:changed", onTask);
+    const names = eventKey.split("|");
+    for (const name of names) s.on(name, onSignal);
     s.on("ready", onReady);
     s.on("disconnect", onDown);
     s.on("connect_error", onDown);
@@ -97,13 +107,13 @@ export function useTaskRealtime(onChange: () => void): { connected: boolean } {
     return () => {
       if (timer) clearTimeout(timer);
       clearInterval(resync);
-      s.off("tasks:changed", onTask);
+      for (const name of names) s.off(name, onSignal);
       s.off("ready", onReady);
       s.off("disconnect", onDown);
       s.off("connect_error", onDown);
       release();
     };
-  }, []);
+  }, [eventKey]);
 
   return { connected };
 }
