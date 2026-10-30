@@ -80,7 +80,7 @@ export default function LoginPage() {
               htmlFor="email"
               className="block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1.5"
             >
-              Employee ID or email
+              Username, employee ID or email
             </label>
             <input
               id="email"
@@ -96,11 +96,11 @@ export default function LoginPage() {
               autoComplete="username"
               autoCapitalize="off"
               spellCheck={false}
-              placeholder="AWL-01"
+              placeholder="yourname_avatar"
               className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             />
             <p className="mt-1.5 text-xs text-slate-400">
-              Use the employee ID your company issued you.
+              Use the username your company gave you, or your employee ID.
             </p>
           </div>
 

@@ -5,7 +5,7 @@ require("dotenv").config({ path: require("node:path").join(__dirname, "..", ".en
 const fs = require("fs"), path = require("path");
 const bcrypt = require("bcryptjs");
 const { Client } = require("pg");
-const API = "http://localhost:5002";
+const API = (process.env.TEST_API ?? "http://localhost:5002/api").replace(/\/api$/, "");
 require("./_guard.cjs").assertTestDb(process.env.TEST_DATABASE_URL);
 
 const src = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");

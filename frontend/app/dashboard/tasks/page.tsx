@@ -10,8 +10,9 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost , API_BASE } from "@/lib/api";
+import { useTaskRealtime } from "@/lib/realtime";
 import { formatDate } from "@/lib/time";
 
 const API = API_BASE;
@@ -107,10 +108,23 @@ export default function TasksPage() {
     }
   }, []);
 
+  // Live updates: the server signals when one of MY tasks changes (a manager assigns, approves or grades it),
+  // and the page reloads at once. While the live connection is up the 30-second poll is only a slow safety net.
+  const { connected } = useTaskRealtime(() => void load());
+  const connectedRef = useRef(connected);
+  useEffect(() => {
+    connectedRef.current = connected;
+  });
+
   useEffect(() => {
     void load();
-    // A manager may approve while this is open, so check back periodically.
-    const poll = setInterval(() => void load(), 30000);
+    let last = Date.now();
+    const poll = setInterval(() => {
+      if (!connectedRef.current || Date.now() - last > 5 * 60_000) {
+        last = Date.now();
+        void load();
+      }
+    }, 30000);
     return () => clearInterval(poll);
   }, [load]);
 

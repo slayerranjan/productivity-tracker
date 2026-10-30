@@ -1,0 +1,26 @@
+// ===========================================================================
+// PRODUCTIVITY — how many tasks a person is expected to finish per day.
+//
+// Set by HR/Admin, one row per scope. The most specific row wins:
+//   person (userId set)  >  team (teamId set)  >  company default (both empty).
+// No row at all means "Target not configured" — a missing target is never treated as zero.
+//
+// No Prisma relations to existing models on purpose: this table is new, and the foreign keys live
+// in the migration SQL only, so no existing model or table changes.
+// ===========================================================================
+
+model DailyTaskTarget {
+  id         String  @id @default(uuid()) @db.Uuid
+  platformId String  @db.Uuid
+  teamId     String? @db.Uuid
+  userId     String? @db.Uuid
+
+  tasksPerDay Int
+
+  updatedById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([platformId])
+  @@map("daily_task_targets")
+}

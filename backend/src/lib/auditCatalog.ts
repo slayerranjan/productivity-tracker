@@ -129,6 +129,7 @@ const RULES: Rule[] = [
   { method: "POST", re: /^\/api\/meetings$/, module: "Meetings", action: "CREATE", summary: "Scheduled a meeting" },
   { method: "PATCH", re: /^\/api\/meetings\/:id$/, module: "Meetings", action: "UPDATE", summary: "Changed a meeting", recordType: "Meeting" },
   { method: "POST", re: /^\/api\/meetings\/:id\/cancel$/, module: "Meetings", action: "CANCEL", summary: "Cancelled a meeting", recordType: "Meeting" },
+  { method: "POST", re: /^\/api\/team-attendance\/targets$/, module: "Teams & rules", action: "UPDATE", summary: "Changed a daily task target", recordType: "DailyTaskTarget" },
   { method: "POST", re: /^\/api\/companies$/, module: "Companies", action: "CREATE", summary: "Added a company" },
   { method: "POST", re: /^\/api\/companies\/:id$/, module: "Companies", action: "UPDATE", summary: "Edited a company", recordType: "Platform" },
 ];

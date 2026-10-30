@@ -10,9 +10,10 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTaskRealtime } from "@/lib/realtime";
 import { API_BASE } from "@/lib/api";
-import { addDaysIso, isoDaysAgo, todayIso } from "@/lib/time";
+import { todayIso } from "@/lib/time";
 import { useMe } from "../layout";
 
 const API = API_BASE;
@@ -49,13 +50,50 @@ type Task = {
   createdAt: string;
 };
 
+// A task as the queue sends it: the task itself plus who it belongs to (an id, a name and an employee ID).
+type Row = Task & { userId: string; who: string; employeeCode: string | null; date: string };
+
 type Queue = {
+  date: string; // the company's "today"
   teamSize: number;
   members: { id: string; name: string; employeeCode: string | null }[];
   proposals: Task[];
   toReview: Task[];
   recent: Task[];
+  all: Row[];
 };
+
+// Every task belongs to exactly ONE of these, so the tab counts always add up to the total in view.
+type TabKey = "waiting" | "todo" | "inProgress" | "completed" | "closed";
+
+function bucketOf(t: { approvalStatus?: string | null; status?: string | null }): TabKey {
+  const a = String(t.approvalStatus ?? "");
+  const st = String(t.status ?? "");
+  if (a === "PENDING") return "waiting"; // not agreed yet, whatever its status says
+  if (a === "REJECTED" || st === "CANCELLED") return "closed"; // sent back, or cancelled
+  if (st === "IN_PROGRESS") return "inProgress";
+  if (st === "COMPLETED") return "completed"; // graded or not
+  return "todo";
+}
+
+// The dates to ask the server for. null = the default view (today, plus anything older still waiting).
+// Days are the company's calendar days, taken from the server's own "today".
+function rangeFor(preset: string, today: string, customFrom: string, customTo: string): { from: string; to: string } | null {
+  const plus = (iso: string, n: number) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+  };
+  if (preset === "yesterday") return { from: plus(today, -1), to: plus(today, -1) };
+  if (preset === "week") return { from: plus(today, -6), to: today };
+  if (preset === "thisweek") {
+    const [y, m, d] = today.split("-").map(Number);
+    const dow = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; // Monday = 0
+    return { from: plus(today, -dow), to: today };
+  }
+  if (preset === "month") return { from: today.slice(0, 8) + "01", to: today };
+  if (preset === "custom") return customFrom && customTo ? { from: customFrom, to: customTo } : null;
+  return null;
+}
 
 const WEIGHTS = [
   { value: "LOW", label: "Low", points: 1 },
@@ -130,110 +168,88 @@ export default function ApprovalsPage() {
   const [title, setTitle] = useState("");
   const [weight, setWeight] = useState("MEDIUM");
 
-  // Person is filtered here in the browser - the queue is already loaded.
-  // Dates go back to the server, because older days are not in the default
-  // response at all.
+  // ONE source of truth. Every counter, chip and list on this page is computed from the same rows (the tasks the
+  // server returned for the chosen dates) by the same helpers below, so they cannot disagree:
+  //   person   - the selected employee's id ("" = Everyone). An id, never a display name: two people can share one.
+  //   bucketOf - the ONE tab a task belongs to, so the tabs add up to the total for the selected scope.
+  // Changing the person, the tab or the dates never resets the other two.
   const [person, setPerson] = useState<string>("");
   const [preset, setPreset] = useState<string>("default");
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
-  const [tab, setTab] = useState<string>("waiting");
+  const [tab, setTab] = useState<TabKey>("waiting");
+  const [reload, setReload] = useState(0);
+  // The company's "today" (from the server). Until the first answer arrives, the browser's own local date.
+  const [today, setToday] = useState<string>(() => todayIso());
 
-  // Every task the manager can see, split by where it actually is. The
-  // database already carries all of these - the screen simply never showed
-  // them, so approved work looked like it had disappeared.
-  // The endpoint sends ll; the local Queue type never declared it.
-  const everything = ((queue as unknown as { all?: RowLike[] })?.all ?? []) as RowLike[];
-
-  const bucket = (key: string) =>
-    everything.filter((t) => {
-      const a = String(t.approvalStatus ?? "");
-      const s = String(t.status ?? "");
-      if (a !== "APPROVED") return false;
-      if (key === "todo") return s === "PENDING";
-      if (key === "inProgress") return s === "IN_PROGRESS";
-      if (key === "completed") return s === "COMPLETED";
-      if (key === "graded") return Boolean(t.outcome);
-      return false;
-    });
-
-  const nameOf = (t: RowLike) =>
-    t.personName || t.name || t.who || t.employee || "Unknown";
-
-  // Deliberately NOT cast to RowLike - the rendered rows need every field the
-  // task actually has. RowLike is only the shape nameOf reads.
-  const allProposals = queue?.proposals ?? [];
-
-  const peopleCounts: [string, number][] = Array.from(
-    everything.reduce((map, t) => {
-      const key = nameOf(t as RowLike);
-      map.set(key, (map.get(key) ?? 0) + 1);
-      return map;
-    }, new Map<string, number>())
-  ).sort((a, b) => b[1] - a[1]);
-
-  const visibleProposals = person
-    ? allProposals.filter((t) => nameOf(t as RowLike) === person)
-    : allProposals;
-
-  // Re-fetch when the date filter changes. Separate from the main load so the
-  // default view - today plus anything still pending - is untouched.
+  // Live updates: when a task of anyone in view changes, the server sends a signal and the SAME reload as an
+  // approve/grade click runs (same dates, same person, same tab). While the live connection is up the page
+  // polls only as a slow safety net; while it is down it polls every 30 seconds, as it always did.
+  const { connected } = useTaskRealtime(() => setReload((n) => n + 1));
+  const connectedRef = useRef(connected);
   useEffect(() => {
-    if (preset === "default") return;
+    connectedRef.current = connected;
+  });
 
-    let from = "";
-    let to = "";
+  const rows: Row[] = queue?.all ?? [];
+  const inScope = person ? rows.filter((t) => t.userId === person) : rows;
+  const counts: Record<TabKey, number> = { waiting: 0, todo: 0, inProgress: 0, completed: 0, closed: 0 };
+  for (const t of inScope) counts[bucketOf(t)] += 1;
+  const listed = inScope.filter((t) => bucketOf(t) === tab);
 
-    if (preset === "yesterday") {
-      from = isoDaysAgo(1);
-      to = from;
-    } else if (preset === "week") {
-      from = isoDaysAgo(6);
-      to = todayIso();
-    } else if (preset === "custom") {
-      // Wait until both ends are chosen, otherwise every keystroke queries.
-      if (!customFrom || !customTo) return;
-      from = customFrom;
-      to = customTo;
+  // One chip per person who has tasks in these dates (plus the selected person, even if they have none).
+  const chipList = (() => {
+    const map = new Map<string, { id: string; name: string; code: string | null; count: number }>();
+    for (const t of rows) {
+      const c = map.get(t.userId) ?? { id: t.userId, name: t.who, code: t.employeeCode, count: 0 };
+      c.count += 1;
+      map.set(t.userId, c);
     }
+    if (person && !map.has(person)) {
+      const m = queue?.members.find((x) => x.id === person);
+      map.set(person, { id: person, name: m?.name ?? "Unknown", code: m?.employeeCode ?? null, count: 0 });
+    }
+    return Array.from(map.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  })();
 
+  const range = rangeFor(preset, today, customFrom, customTo);
+  const path = range ? `/tasks/review/queue?from=${range.from}&to=${range.to}` : "/tasks/review/queue";
+  const waitingForDates = preset === "custom" && !range; // custom needs both ends before anything is asked
+
+  // The only place the queue is fetched. The same dates are used by the first load, the 30-second refresh and
+  // the reload after an approve/grade, so nothing quietly snaps back to "Today".
+  useEffect(() => {
+    if (waitingForDates) return;
     let cancelled = false;
-    (async () => {
+    let lastFetch = Date.now();
+    const go = async () => {
       try {
-        const next = await call<Queue>(
-          `/tasks/review/queue?from=${from}&to=${to}`
-        );
-        if (!cancelled) setQueue(next);
+        const next = await call<Queue>(path);
+        if (cancelled) return;
+        lastFetch = Date.now();
+        setQueue(next);
+        setToday(next.date);
+        setError("");
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load");
+        if (!cancelled) setError(e instanceof Error ? e.message : "Could not load the queue");
       }
-    })();
-
+    };
+    void go();
+    const poll = setInterval(() => {
+      if (!connectedRef.current || Date.now() - lastFetch > 5 * 60_000) void go();
+    }, 30000);
     return () => {
       cancelled = true;
+      clearInterval(poll);
     };
-  }, [preset, customFrom, customTo]);
+  }, [path, waitingForDates, reload]);
 
-  const load = useCallback(async () => {
-    try {
-      setQueue(await call<Queue>("/tasks/review/queue"));
-      setError("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load the queue");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    const poll = setInterval(() => void load(), 30000);
-    return () => clearInterval(poll);
-  }, [load]);
-
-  async function run(fn: () => Promise<Queue>) {
+  async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     setError("");
     try {
-      setQueue(await fn());
+      await fn();
+      setReload((n) => n + 1); // re-ask for the SAME dates
     } catch (e) {
       setError(e instanceof Error ? e.message : "That didn't work");
     } finally {
@@ -261,6 +277,10 @@ export default function ApprovalsPage() {
           Agree the work before it starts, grade it once it's done.
           {queue ? ` ${queue.teamSize} people in your teams.` : ""}
         </p>
+        <p className={"mt-1.5 inline-flex items-center gap-1.5 text-xs " + (connected ? "text-emerald-600" : "text-amber-600")} aria-live="polite">
+          <span className={"h-1.5 w-1.5 rounded-full " + (connected ? "bg-emerald-500" : "bg-amber-400")} />
+          {connected ? "Live: changes appear as they happen" : "Reconnecting… checking for changes every 30 seconds"}
+        </p>
       </header>
 
       {error && (
@@ -274,11 +294,12 @@ export default function ApprovalsPage() {
       <section className="rounded-2xl rounded-b-none border border-b-0 border-indigo-100 bg-white">
         {/* people */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-          {[{ who: "", count: everything.length }, ...peopleCounts.map(([who, count]) => ({ who, count }))].map(
+          {[{ id: "", name: "Everyone", code: null as string | null, count: rows.length }, ...chipList].map(
             (c) => {
-              const label = c.who || "Everyone";
-              const active = person === c.who;
-              const initials = label
+              const dup = chipList.filter((x) => x.name === c.name).length > 1;
+              const label = c.id && dup && c.code ? `${c.name} · ${c.code}` : c.name;
+              const active = person === c.id;
+              const initials = c.name
                 .split(" ")
                 .map((w) => w[0])
                 .slice(0, 2)
@@ -286,8 +307,8 @@ export default function ApprovalsPage() {
                 .toUpperCase();
               return (
                 <button
-                  key={label}
-                  onClick={() => setPerson(c.who)}
+                  key={c.id || "everyone"}
+                  onClick={() => setPerson(c.id)}
                   className={`flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3.5 text-sm transition ${
                     active
                       ? "border-indigo-300 bg-indigo-50 text-indigo-700"
@@ -314,12 +335,13 @@ export default function ApprovalsPage() {
         {/* state + when */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-indigo-50 px-4">
           <div className="flex flex-wrap items-center gap-6">
-            {[
-              { key: "waiting", label: "Needs approval", n: allProposals.length },
-              { key: "todo", label: "To do", n: bucket("todo").length },
-              { key: "inProgress", label: "In progress", n: bucket("inProgress").length },
-              { key: "completed", label: "Completed", n: bucket("completed").length },
-            ].map((o) => (
+            {([
+              { key: "waiting", label: "Needs approval", n: counts.waiting },
+              { key: "todo", label: "To do", n: counts.todo },
+              { key: "inProgress", label: "In progress", n: counts.inProgress },
+              { key: "completed", label: "Completed", n: counts.completed },
+              { key: "closed", label: "Closed", n: counts.closed },
+            ] as { key: TabKey; label: string; n: number }[]).map((o) => (
               <button
                 key={o.key}
                 onClick={() => setTab(o.key)}
@@ -352,6 +374,8 @@ export default function ApprovalsPage() {
               <option value="default">Today</option>
               <option value="yesterday">Yesterday</option>
               <option value="week">Last 7 days</option>
+              <option value="thisweek">This week</option>
+              <option value="month">This month</option>
               <option value="custom">Custom dates</option>
             </select>
           </div>
@@ -387,13 +411,13 @@ export default function ApprovalsPage() {
         </div>
 
         <ul className="divide-y divide-indigo-50">
-          {queue?.proposals.length === 0 && (
+          {listed.length === 0 && (
             <li className="px-5 py-8 text-center text-sm text-slate-400">
               Nothing waiting.
             </li>
           )}
 
-          {visibleProposals.map((t) => (
+          {listed.map((t) => (
             <li key={t.id} className="px-5 py-4">
               <div className="flex flex-wrap items-start gap-3">
                 <div className="min-w-0 flex-1">
@@ -488,23 +512,16 @@ export default function ApprovalsPage() {
         </div>
 
         <ul className="divide-y divide-indigo-50">
-          {bucket(tab)
-            .filter((t) => !person || nameOf(t) === person)
-            .map((t) => (
-              <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-slate-900">{t.title}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{personLabel(t)}</p>
-                </div>
-                {t.outcome && (
-                  <span className="rounded-full bg-[#EEF0FD] px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                    {String(t.outcome).toLowerCase().replace("_", " ")}
-                  </span>
-                )}
-              </li>
-            ))}
+          {listed.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-slate-900">{t.title}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{personLabel(t as RowLike)}</p>
+              </div>
+            </li>
+          ))}
 
-          {bucket(tab).filter((t) => !person || nameOf(t) === person).length === 0 && (
+          {listed.length === 0 && (
             <li className="px-5 py-6 text-center text-xs text-slate-400">
               Nothing here.
             </li>
@@ -517,18 +534,18 @@ export default function ApprovalsPage() {
       <section className="overflow-hidden rounded-2xl rounded-t-none bg-white shadow-[var(--shadow-card)]">
         <div className="border-b border-indigo-50 px-5 py-3.5">
           <p className="mt-0.5 text-xs text-slate-400">
-            Until you grade these they score full marks.
+            Until you grade a task it scores full marks.
           </p>
         </div>
 
         <ul className="divide-y divide-indigo-50">
-          {queue?.toReview.length === 0 && (
+          {listed.length === 0 && (
             <li className="px-5 py-8 text-center text-sm text-slate-400">
-              Nothing to grade.
+              Nothing completed.
             </li>
           )}
 
-          {queue?.toReview.map((t) => (
+          {listed.map((t) => (
             <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-900">{t.title}</p>
@@ -548,6 +565,11 @@ export default function ApprovalsPage() {
                 {t.weight.toLowerCase()}
               </span>
 
+              {t.outcome ? (
+                <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${OUTCOME_CHIP[t.outcome]?.cls ?? ""}`}>
+                  {OUTCOME_CHIP[t.outcome]?.label ?? String(t.outcome).toLowerCase()}
+                </span>
+              ) : (
               <div className="flex shrink-0 gap-2">
                 {OUTCOMES.map((o) => (
                   <button
@@ -566,6 +588,7 @@ export default function ApprovalsPage() {
                   </button>
                 ))}
               </div>
+              )}
             </li>
           ))}
         </ul>
@@ -573,33 +596,27 @@ export default function ApprovalsPage() {
       )}
 
       {/* --- recent -------------------------------------------------------- */}
-      {queue && queue.recent.length > 0 && (
+      {tab === "closed" && (
         <section className="overflow-hidden rounded-2xl rounded-t-none bg-white shadow-[var(--shadow-card)]">
           <div className="border-b border-indigo-50 px-5 py-3.5">
-            <h2 className="text-sm font-medium text-slate-900">Recently graded</h2>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Work that was sent back or cancelled. It does not count for anyone.
+            </p>
           </div>
           <ul className="divide-y divide-indigo-50">
-            {queue.recent.map((t) => {
-              const grade = t.outcome ? OUTCOME_CHIP[t.outcome] : null;
-              return (
-                <li
-                  key={t.id}
-                  className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm"
-                >
-                  <span className="min-w-0 flex-1 truncate text-slate-600">
-                    {t.title}
-                    <span className="ml-2 text-xs text-slate-400">{personLabel(t as RowLike)}</span>
-                  </span>
-                  {grade && (
-                    <span
-                      className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${grade.cls}`}
-                    >
-                      {grade.label}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
+            {listed.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-slate-900">{t.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{personLabel(t as RowLike)}</p>
+                  {t.rejectionNote && <p className="mt-1 text-xs text-slate-500">Sent back: {t.rejectionNote}</p>}
+                </div>
+                <span className="shrink-0 rounded px-2 py-0.5 text-xs font-medium bg-rose-50 text-rose-700">
+                  {t.approvalStatus === "REJECTED" ? "sent back" : "cancelled"}
+                </span>
+              </li>
+            ))}
+            {listed.length === 0 && <li className="px-5 py-6 text-center text-xs text-slate-400">Nothing here.</li>}
           </ul>
         </section>
       )}

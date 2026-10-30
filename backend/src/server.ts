@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { createServer } from "node:http";
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import trackerRoutes from "./modules/tracker/tracker.routes.js";
@@ -21,6 +22,9 @@ import auditRoutes from "./modules/audit/audit.routes.js";
 import documentRoutes from "./modules/documents/documents.routes.js";
 import meetingRoutes from "./modules/meetings/meetings.routes.js";
 import companyRoutes from "./modules/companies/companies.routes.js";
+import teamAttendanceRoutes from "./modules/team-attendance/teamAttendance.routes.js";
+import { startRealtime } from "./lib/realtime.js";
+import { manageableUserIds } from "./modules/tasks/tasks.service.js";
 import { requireAuth } from "./middlewares/auth.js";
 import { requireTrackerAccess } from "./middlewares/trackerGate.js";
 import { startTrackerScheduler } from "./modules/tracker/tracker.scheduler.js";
@@ -94,11 +98,25 @@ app.use("/api/audit-logs", auditRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/meetings", meetingRoutes);
 app.use("/api/companies", companyRoutes);
+app.use("/api/team-attendance", teamAttendanceRoutes);
 app.use((_req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-app.listen(PORT, () => {
+// Express and Socket.IO share one HTTP server (and one port). Real-time is an extra: if it fails to start the
+// REST API still runs, and every page falls back to ordinary polling.
+const httpServer = createServer(app);
+try {
+  startRealtime(httpServer, {
+    origins: allowedOrigins,
+    // The people whose task events a user may receive: the same rule the Team Tasks queue already uses.
+    personsFor: async (u) => (u.role === "EMPLOYEE" ? [] : manageableUserIds({ id: u.userId, role: u.role, platformId: u.platformId })),
+  });
+} catch (e) {
+  console.error("[realtime] not started:", e instanceof Error ? e.message : e);
+}
+
+httpServer.listen(PORT, () => {
   console.log(`Tracker backend listening on http://localhost:${PORT}`);
   startTrackerScheduler();
   startOnboardingScheduler();
