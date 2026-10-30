@@ -101,6 +101,13 @@ export async function buildPayslipPdf(
         select: {
           firstName: true, lastName: true, employeeCode: true,
           designation: true, dateOfJoining: true,
+          // The team stands in for a department, which is not stored separately.
+          teamMemberships: {
+            where: { isActive: true },
+            orderBy: { isPrimary: "desc" },
+            take: 1,
+            select: { team: { select: { name: true } } },
+          },
         },
       },
       platform: { select: { name: true, timezone: true } },
@@ -144,172 +151,167 @@ export async function buildPayslipPdf(
     "Unnamed";
   const monthLabel = `${MONTHS[slip.month - 1]} ${slip.year}`;
 
-  const doc = new PDFDocument({ size: "A4", margin: 48 });
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
   const finished = new Promise<Buffer>((resolve) =>
     doc.on("end", () => resolve(Buffer.concat(chunks))),
   );
 
-  const LEFT = 48;
-  const RIGHT = 547; // A4 width 595 less the right margin
-  const MID = 297; // the vertical centre line of the content area
-  const INK = "#0f172a";
-  const MUTED = "#64748b";
-  const LINE = "#cbd5e1";
-  const TINT = "#f1f5f9";
+  // The layout follows the company's own payslip: one ruled box, employee
+  // details in two halves, earnings beside deductions, net, words, disclaimer.
+  const LEFT = 40;
+  const W = 515; // A4 width 595 less both margins
+  const RIGHT = LEFT + W;
+  const INK = "#000000";
 
   // Helvetica has no rupee glyph, so "Rs." is used throughout. A missing
   // glyph prints as a black box on a document somebody takes to a bank.
   const money = (n: number) => `Rs. ${inr(n)}`;
   const dayCount = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-
-  // The day printed on the slip is the company's day, not the server's.
   const dayIn = (d: Date) =>
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone: slip.platform.timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: slip.platform.timezone, day: "2-digit", month: "short", year: "numeric",
     }).format(d);
 
-  function rule(y: number) {
-    doc.moveTo(LEFT, y).lineTo(RIGHT, y).lineWidth(0.5).strokeColor(LINE).stroke();
+  doc.lineWidth(0.8).strokeColor(INK);
+  const hline = (y: number, x1 = LEFT, x2 = RIGHT) => doc.moveTo(x1, y).lineTo(x2, y).stroke();
+  const vline = (x: number, y1: number, y2: number) => doc.moveTo(x, y1).lineTo(x, y2).stroke();
+
+  // Text centred vertically inside a row of height h that starts at top.
+  function cell(
+    text: string, x: number, top: number, h: number, w: number,
+    opts: { bold?: boolean; align?: "left" | "center" | "right"; size?: number } = {},
+  ) {
+    const size = opts.size ?? 9;
+    doc.font(opts.bold ? "Helvetica-Bold" : "Helvetica").fontSize(size).fillColor(INK);
+    doc.text(text, x + 6, top + (h - size) / 2, { width: w - 12, align: opts.align ?? "left", lineBreak: false });
   }
 
-  function heading(text: string, y: number) {
-    doc.font("Helvetica-Bold").fontSize(9).fillColor(MUTED);
-    doc.text(text.toUpperCase(), LEFT, y, { characterSpacing: 0.6 });
-  }
-
-  // One label/value pair inside a column that starts at x and is w wide.
-  function pair(label: string, value: string, x: number, w: number, y: number, bold = false) {
-    doc.font("Helvetica").fontSize(9.5).fillColor(MUTED);
-    doc.text(label, x, y, { width: w * 0.55 });
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9.5).fillColor(INK);
-    doc.text(value, x + w * 0.45, y, { width: w * 0.55, align: "right" });
-  }
-
-  // --- header
-  doc.font("Helvetica-Bold").fontSize(18).fillColor(INK);
-  doc.text(slip.platform.name, LEFT, 48);
-  doc.font("Helvetica-Bold").fontSize(11).fillColor(INK);
-  doc.text("PAYSLIP", RIGHT - 200, 50, { width: 200, align: "right" });
-  doc.font("Helvetica").fontSize(10).fillColor(MUTED);
-  doc.text(monthLabel, RIGHT - 200, 66, { width: 200, align: "right" });
+  // --- title box
+  let y = 40;
+  const titleH = 70;
+  doc.rect(LEFT, y, W, titleH).stroke();
+  doc.font("Times-Bold").fontSize(15).fillColor(INK);
+  doc.text(slip.platform.name, LEFT, y + 14, { width: W, align: "center" });
+  doc.font("Times-Bold").fontSize(11);
+  doc.text(`Pay slip for the month of ${monthLabel}`, LEFT, y + 46, { width: W, align: "center" });
   if (slip.status !== "APPROVED") {
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#b91c1c");
-    doc.text(`${slip.status} - NOT APPROVED`, RIGHT - 200, 82, {
-      width: 200, align: "right",
-    });
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#b91c1c");
+    doc.text(`${slip.status} - NOT APPROVED`, RIGHT - 160, y + 5, { width: 154, align: "right", lineBreak: false });
   }
-  doc.font("Helvetica").fontSize(9).fillColor(MUTED);
-  doc.text(`Pay period: 1 - ${daysInMonth} ${monthLabel}`, LEFT, 72);
-  rule(100);
+  y += titleH;
 
-  // --- employee details, two columns
-  const colW = 230;
-  const colR = MID + 20;
-  let y = 114;
-  heading("Employee", y);
-  y += 18;
-  pair("Name", name, LEFT, colW, y);
-  pair("Date of joining",
-    slip.user.dateOfJoining ? dayIn(slip.user.dateOfJoining) : "-", colR, colW, y);
-  y += 16;
-  pair("Employee code", slip.user.employeeCode ?? "-", LEFT, colW, y);
-  pair("Days in month", String(daysInMonth), colR, colW, y);
-  y += 16;
-  pair("Designation", slip.user.designation ?? "-", LEFT, colW, y);
-  pair("Payable days", dayCount(payableDays), colR, colW, y, true);
-  y += 26;
-  rule(y); y += 14;
-
-  // --- attendance. Every day of the month lands in exactly one line, so the
-  // lines add up to "Days in month". Days before joining are unpaid but are
-  // not absences, and used to be missing, which made the table not reconcile.
-  const t = attendance.totals;
-  const upcoming = attendance.days.filter((d) => d.status === "FUTURE").length;
-  heading("Attendance", y);
-  y += 18;
-  const left: [string, string][] = [
-    ["Present", dayCount(t.presentDays)],
-    ["Half days", dayCount(t.halfDays)],
-    ["Leave", dayCount(t.leaveDays)],
-    ["Holidays and week-offs", dayCount(t.holidays + t.weekOffs)],
+  // --- employee details: labels in bold, values beside them
+  const detailsH = 112;
+  const split = LEFT + W * 0.64;
+  doc.rect(LEFT, y, W, detailsH).stroke();
+  vline(split, y, y + detailsH);
+  const dept = slip.user.teamMemberships[0]?.team.name ?? "-";
+  const leftRows: [string, string][] = [
+    ["Employee Name:", name],
+    ["Employee Code:", slip.user.employeeCode ?? "-"],
+    ["Department:", dept],
+    ["Designation:", slip.user.designation ?? "-"],
   ];
-  const right: [string, string][] = [
-    ["Absent / half-day loss", dayCount(t.lossOfPayDays)],
-    ["Before joining", dayCount(t.notEmployedDays)],
-    ["Not tracked", dayCount(t.notTrackedDays)],
-    ["Rest of month", dayCount(upcoming)],
+  const rightRows: [string, string][] = [
+    ["Date Of Joining:", slip.user.dateOfJoining ? dayIn(slip.user.dateOfJoining) : "-"],
+    // PAN is not collected anywhere in the system yet, so it is left as a dash
+    // rather than invented.
+    ["PAN No:", "-"],
+    ["Paid Days:", dayCount(payableDays)],
+    ["Leaves Applied:", dayCount(attendance.totals.leaveDays)],
   ];
-  for (let i = 0; i < left.length; i++) {
-    pair(left[i][0], left[i][1], LEFT, colW, y);
-    pair(right[i][0], right[i][1], colR, colW, y);
-    y += 16;
-  }
-  y += 10;
-  rule(y); y += 14;
+  const rowH = detailsH / 4;
+  leftRows.forEach(([label, value], i) => {
+    const top = y + i * rowH;
+    cell(label, LEFT, top, rowH, 110, { bold: true });
+    cell(value, LEFT + 110, top, rowH, split - LEFT - 110);
+  });
+  rightRows.forEach(([label, value], i) => {
+    const top = y + i * rowH;
+    cell(label, split, top, rowH, 95, { bold: true });
+    cell(value, split + 95, top, rowH, RIGHT - split - 95);
+  });
+  y += detailsH;
 
-  // --- earnings and deductions, side by side
-  const unpaidDays = Math.max(0, round2(daysInMonth - payableDays));
-  heading("Earnings", y);
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(MUTED);
-  doc.text("DEDUCTIONS", colR, y, { characterSpacing: 0.6 });
-  y += 18;
+  // --- earnings | deductions
+  const dividerX = LEFT + W * 0.71;
+  const eW = dividerX - LEFT;
+  const cols = [0, 0.2, 0.43, 0.65, 0.78, 1].map((f) => LEFT + eW * f);
+  const earned = Math.round((gross - lossOfPay) * 100) / 100;
 
-  const earnTop = y;
-  pair("Monthly salary", money(gross), LEFT, colW, y);
-  const deductRows: [string, string][] = [
-    [`Loss of pay (${dayCount(unpaidDays)} day${unpaidDays === 1 ? "" : "s"})`, money(lossOfPay)],
-  ];
-  if (otherDeduction > 0) {
-    deductRows.push([
-      `Other${slip.otherDeductionNote ? ` (${slip.otherDeductionNote})` : ""}`,
-      money(otherDeduction),
-    ]);
-  }
-  let dy = earnTop;
-  for (const [label, value] of deductRows) {
-    pair(label, value, colR, colW, dy);
-    dy += 16;
-  }
-  y = Math.max(earnTop + 16, dy) + 6;
+  const headH = 28;
+  const bodyRows = otherDeduction > 0 ? 2 : 1;
+  const bodyH = bodyRows * 22 + 14;
 
-  // Totals row on a tinted band so the two sums are easy to find.
-  doc.rect(LEFT, y - 4, RIGHT - LEFT, 22).fill(TINT);
-  pair("Gross earnings", money(gross), LEFT + 4, colW - 8, y + 2, true);
-  pair("Total deductions", money(deductions), colR, colW - 4, y + 2, true);
-  y += 34;
+  doc.rect(LEFT, y, W, headH + bodyH).stroke();
+  vline(dividerX, y, y + headH + bodyH);
+  hline(y + headH);
 
-  // --- net payable
-  doc.rect(LEFT, y, RIGHT - LEFT, 44).lineWidth(1).strokeColor(INK).stroke();
-  doc.font("Helvetica-Bold").fontSize(12).fillColor(INK);
-  doc.text("Net payable", LEFT + 12, y + 8);
-  doc.fontSize(14);
-  doc.text(money(net), RIGHT - 212, y + 7, { width: 200, align: "right" });
-  doc.font("Helvetica-Oblique").fontSize(9).fillColor(MUTED);
-  doc.text(amountInWords(net), LEFT + 12, y + 28, { width: RIGHT - LEFT - 24 });
-  y += 62;
-
-  // --- how it was worked out
-  doc.font("Helvetica").fontSize(8.5).fillColor(MUTED);
-  doc.text(
-    `Per day rate = monthly salary / ${daysInMonth} days = ${money(perDay)}. ` +
-      `Loss of pay = ${dayCount(unpaidDays)} unpaid day${unpaidDays === 1 ? "" : "s"} ` +
-      `(${daysInMonth} days in month less ${dayCount(payableDays)} payable days).`,
-    LEFT, y, { width: RIGHT - LEFT },
+  const heads = ["Earnings", "Monthly Rate", "Current Month", "Arrears", "Total"];
+  heads.forEach((h, i) =>
+    cell(h, cols[i], y, headH, cols[i + 1] - cols[i], { bold: true, align: "center" }),
   );
-  y += 40;
-  rule(y); y += 10;
+  const dedW = (RIGHT - dividerX) * 0.6;
+  const amtW = (RIGHT - dividerX) * 0.4;
+  cell("Deductions", dividerX, y, headH, dedW, { bold: true, align: "center" });
+  cell("Amount", dividerX + dedW, y, headH, amtW, { bold: true, align: "right" });
 
-  // --- footer
-  doc.font("Helvetica").fontSize(8).fillColor(MUTED);
+  // Pay is pro-rated for paid days: Current Month is what the person earned
+  // this month, so the loss of pay is already inside it. Net = earned less any
+  // manual deduction, which is the same net the approval screen shows.
+  const bodyTop = y + headH + 4;
+  cell("Basic Salary", cols[0], bodyTop, 22, cols[1] - cols[0]);
+  cell(inr(gross), cols[1], bodyTop, 22, cols[2] - cols[1], { align: "center" });
+  cell(inr(earned), cols[2], bodyTop, 22, cols[3] - cols[2], { align: "center" });
+  cell("0", cols[3], bodyTop, 22, cols[4] - cols[3], { align: "center" });
+  cell(inr(earned), cols[4], bodyTop, 22, cols[5] - cols[4], { align: "center" });
+
+  if (otherDeduction > 0) {
+    cell(slip.otherDeductionNote ? `Other (${slip.otherDeductionNote})` : "Other deduction",
+      dividerX, bodyTop, 22, dedW);
+    cell(inr(otherDeduction), dividerX + dedW, bodyTop, 22, amtW, { align: "right" });
+  }
+  const tdTop = bodyTop + (otherDeduction > 0 ? 22 : 0);
+  cell("Total Deductions", dividerX, tdTop, 22, dedW);
+  cell(inr(otherDeduction), dividerX + dedW, tdTop, 22, amtW, { align: "right" });
+  y += headH + bodyH;
+
+  // --- gross earnings | net salary
+  const totH = 36;
+  doc.rect(LEFT, y, W, totH).stroke();
+  vline(dividerX, y, y + totH);
+  cell("Gross Earnings", cols[0], y, totH, cols[3] - cols[0], { align: "center" });
+  cell(inr(earned), cols[4], y, totH, cols[5] - cols[4], { align: "center", bold: true });
+  cell("Net Salary", dividerX, y, totH, dedW);
+  cell(inr(net), dividerX + dedW, y, totH, amtW, { align: "right", bold: true });
+  y += totH;
+
+  // --- in words
+  const wordsH = 36;
+  doc.rect(LEFT, y, W, wordsH).stroke();
+  cell("In words:", LEFT, y, wordsH, 60, { bold: true });
+  cell(amountInWords(net), LEFT + 56, y, wordsH, W - 56);
+  y += wordsH;
+
+  // --- disclaimer
+  const discH = 22;
+  doc.rect(LEFT, y, W, discH).stroke();
+  cell(
+    "Disclaimer - This is computer generated salary slip, does not require any signature.",
+    LEFT, y, discH, W, { align: "center", size: 7 },
+  );
+  y += discH + 12;
+
+  // --- how it was worked out, outside the box
+  doc.font("Helvetica").fontSize(8).fillColor("#475569");
   doc.text(
-    `Generated ${dayIn(new Date())}. ` +
-      (slip.approvedAt
-        ? `Approved ${dayIn(slip.approvedAt)}. `
-        : "Not yet approved. ") +
-      "No PF, PT or ESI is deducted. This is a computer-generated document and does not need a signature.",
-    LEFT, y, { width: RIGHT - LEFT },
+    `Basic salary is pro-rated: ${dayCount(payableDays)} paid days of ${daysInMonth} ` +
+      `(${money(perDay)} per day). Loss of pay for the remaining days: ${money(lossOfPay)}. ` +
+      `No PF, PT or ESI is deducted. Generated ${dayIn(new Date())}` +
+      (slip.approvedAt ? `, approved ${dayIn(slip.approvedAt)}.` : ", not yet approved."),
+    LEFT, y, { width: W },
   );
 
   doc.end();
