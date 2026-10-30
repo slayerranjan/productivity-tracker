@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
+import { currentHour, formatDate, formatTime } from "@/lib/time";
 import { useMe } from "./layout";
 
 type Break = {
@@ -88,7 +89,7 @@ function hm(total: number) {
 }
 
 function clockTime(iso: string | number) {
-  return new Date(iso).toLocaleTimeString("en-IN", {
+  return formatTime(iso, {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -295,15 +296,15 @@ export default function TodayPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            {new Date().getHours() < 12
+            {currentHour() < 12
               ? "Good morning"
-              : new Date().getHours() < 17
+              : currentHour() < 17
                 ? "Good afternoon"
                 : "Good evening"}
             , {me.firstName}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            {new Date().toLocaleDateString("en-IN", {
+            {formatDate(new Date(), {
               weekday: "long",
               day: "numeric",
               month: "long",

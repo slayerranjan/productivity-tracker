@@ -93,6 +93,8 @@ function publicUser(user: any) {
       id: user.platform.id,
       name: user.platform.name,
       slug: user.platform.slug,
+      // The frontend reads every date and time in this zone.
+      timezone: user.platform.timezone,
     },
   };
 }

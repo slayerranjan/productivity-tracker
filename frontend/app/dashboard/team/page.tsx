@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
+import { formatTime } from "@/lib/time";
 import { useMe } from "../layout";
 
 type Row = {
@@ -465,7 +466,7 @@ export default function TeamPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-600 tabular-nums">
                         {r.loginAt
-                          ? new Date(r.loginAt).toLocaleTimeString("en-IN", {
+                          ? formatTime(r.loginAt, {
                               hour: "2-digit",
                               minute: "2-digit",
                             })

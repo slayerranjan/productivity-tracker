@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiGet, clearToken, getToken } from "@/lib/api";
+import { setPlatformTimezone } from "@/lib/time";
 
 export type Me = {
   id: string;
@@ -15,7 +16,7 @@ export type Me = {
   designation: string | null;
   trackerAccessEnabled: boolean;
     mustChangePassword?: boolean;
-  platform: { id: string; name: string; slug: string };
+  platform: { id: string; name: string; slug: string; timezone?: string };
 };
 
 const MeContext = createContext<Me | null>(null);
@@ -199,6 +200,7 @@ export default function DashboardLayout({
           router.replace("/onboarding");
           return;
         }
+        setPlatformTimezone(m.platform.timezone);
         setMe(m);
       })
       .catch((err) => setError(err.message));

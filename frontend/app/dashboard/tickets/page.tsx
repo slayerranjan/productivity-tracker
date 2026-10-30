@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { formatDateTime, platformLocalToIso, todayIso } from "@/lib/time";
 import { useMe } from "../layout";
 
 const API = API_BASE;
@@ -122,21 +123,12 @@ function dueLabel(dueAt: string | null, isOverdue: boolean): string {
 }
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString("en-IN", {
+  return formatDateTime(iso, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function todayIso() {
-  const d = new Date();
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, "0"),
-    String(d.getDate()).padStart(2, "0"),
-  ].join("-");
 }
 
 // ===========================================================================
@@ -619,8 +611,8 @@ function RaiseDrawer({
         ...(isCorrection
           ? {
               correctionDate,
-              requestedLoginAt: loginAt ? new Date(loginAt).toISOString() : undefined,
-              requestedLogoutAt: logoutAt ? new Date(logoutAt).toISOString() : undefined,
+              requestedLoginAt: loginAt ? platformLocalToIso(loginAt) : undefined,
+              requestedLogoutAt: logoutAt ? platformLocalToIso(logoutAt) : undefined,
             }
           : {}),
       });

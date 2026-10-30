@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { addDaysIso, isoDaysAgo, todayIso } from "@/lib/time";
 import { useMe } from "../layout";
 
 const API = API_BASE;
@@ -101,16 +102,15 @@ type RowLike = {
 
 function dayLabel(iso?: string | null): string {
   if (!iso) return "";
-  const today = new Date();
-  const d = new Date(iso + "T00:00:00");
+  const d = new Date(iso + "T00:00:00Z");
   const days = Math.round(
-    (new Date(today.toDateString()).getTime() - d.getTime()) / 86400000
+    (new Date(todayIso() + "T00:00:00Z").getTime() - d.getTime()) / 86400000
   );
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   // Past two days an actual date is more useful than "day before yesterday",
   // which stops meaning anything once you are chasing week-old work.
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 function personLabel(t: RowLike): string {
@@ -181,21 +181,15 @@ export default function ApprovalsPage() {
   useEffect(() => {
     if (preset === "default") return;
 
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const today = new Date();
     let from = "";
     let to = "";
 
     if (preset === "yesterday") {
-      const d = new Date(today);
-      d.setDate(d.getDate() - 1);
-      from = iso(d);
-      to = iso(d);
+      from = isoDaysAgo(1);
+      to = from;
     } else if (preset === "week") {
-      const d = new Date(today);
-      d.setDate(d.getDate() - 6);
-      from = iso(d);
-      to = iso(today);
+      from = isoDaysAgo(6);
+      to = todayIso();
     } else if (preset === "custom") {
       // Wait until both ends are chosen, otherwise every keystroke queries.
       if (!customFrom || !customTo) return;

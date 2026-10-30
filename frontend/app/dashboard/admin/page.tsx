@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { todayIso } from "@/lib/time";
 import { useMe } from "../layout";
 
 const API = API_BASE;
@@ -127,15 +128,6 @@ const STATUS_CHIP: Record<string, string> = {
   SUSPENDED: "bg-amber-50 text-amber-700 ring-amber-200",
   EXITED: "bg-rose-50 text-rose-700 ring-rose-200",
 };
-
-function todayIso() {
-  const d = new Date();
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, "0"),
-    String(d.getDate()).padStart(2, "0"),
-  ].join("-");
-}
 
 // ===========================================================================
 

@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiPost , API_BASE } from "@/lib/api";
+import { formatDate } from "@/lib/time";
 
 const API = API_BASE;
 
@@ -163,7 +164,7 @@ export default function TasksPage() {
           Daily tasks
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          {new Date().toLocaleDateString("en-IN", {
+          {formatDate(new Date(), {
             weekday: "long",
             day: "numeric",
             month: "long",
