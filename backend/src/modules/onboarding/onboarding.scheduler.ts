@@ -12,6 +12,7 @@
 // ===========================================================================
 
 import { prisma } from "../../lib/prisma.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 import { platformToday } from "../../lib/dates.js";
 import { sendOnboardingReminders } from "./onboarding.reminders.js";
 

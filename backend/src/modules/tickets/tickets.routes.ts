@@ -9,8 +9,10 @@
 import { Router } from "express";
 import { requireAuth } from "../../middlewares/auth.js";
 import * as tickets from "./tickets.service.js";
+import { guardUuidParams, isBadInput } from "../../lib/params.js";
 
 const router = Router();
+guardUuidParams(router);
 
 router.use(requireAuth);
 
@@ -20,6 +22,7 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   MISSING_FIELDS: { status: 400, message: "A subject and a description are required." },
   BAD_CATEGORY: { status: 400, message: "Pick a valid category." },
   BAD_DATE: { status: 400, message: "Dates must be in YYYY-MM-DD format." },
+  BAD_TIME: { status: 400, message: "That time is not valid." },
   MISSING_CORRECTION_DATE: {
     status: 400,
     message: "Which date are you correcting?",
@@ -39,6 +42,10 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
 };
 
 function fail(res: any, error: unknown) {
+  if (isBadInput(error)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = error instanceof Error ? error.message : "UNKNOWN";
   const mapped = MESSAGES[code];
   if (mapped) return res.status(mapped.status).json({ error: mapped.message });

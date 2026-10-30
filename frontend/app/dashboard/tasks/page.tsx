@@ -74,7 +74,7 @@ const WEIGHTS = [
 ];
 
 const WEIGHT_CHIP: Record<string, string> = {
-  LOW: "bg-slate-100 text-slate-600",
+  LOW: "bg-[#EEF0FD] text-slate-600",
   MEDIUM: "bg-sky-50 text-sky-700",
   HIGH: "bg-amber-50 text-amber-700",
   CRITICAL: "bg-rose-50 text-rose-700",
@@ -173,13 +173,13 @@ export default function TasksPage() {
 
       {/* --- score ------------------------------------------------------- */}
       {score && (
-        <section className="rounded-2xl bg-slate-900 p-6 text-white">
+        <section className="rounded-2xl bg-indigo-600 p-6 text-white">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-4xl font-semibold tabular-nums tracking-tight">
                 {score.percent}%
               </p>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1 text-sm text-indigo-100">
                 {score.completed} of {score.total} approved tasks ·{" "}
                 <span className="tabular-nums">
                   {score.doneWeight}/{score.totalWeight}
@@ -188,20 +188,20 @@ export default function TasksPage() {
               </p>
             </div>
             {score.awaitingApproval > 0 && (
-              <p className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300">
+              <p className="rounded-xl bg-white/15 px-3 py-1.5 text-xs text-indigo-100">
                 {score.awaitingApproval} waiting on your manager — not counted yet
               </p>
             )}
           </div>
 
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15">
             <div
               className="h-full bg-emerald-400 transition-all duration-700"
               style={{ width: `${score.percent}%` }}
             />
           </div>
 
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-indigo-200">
             Weighted — a critical task counts five times a low one. Partially done work
             scores half.
           </p>
@@ -211,13 +211,13 @@ export default function TasksPage() {
       {/* --- propose ------------------------------------------------------ */}
       <form
         onSubmit={propose}
-        className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3"
+        className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-4 space-y-3"
       >
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="What do you plan to do today?"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-900"
+          className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-indigo-500"
         />
 
         <div className="flex flex-wrap gap-2">
@@ -225,12 +225,12 @@ export default function TasksPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Any detail your manager needs (optional)"
-            className="min-w-56 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-slate-900"
+            className="min-w-56 flex-1 rounded-xl border border-indigo-200 px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-indigo-500"
           />
           <select
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+            className="rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900"
           >
             {WEIGHTS.map((w) => (
               <option key={w.value} value={w.value}>
@@ -241,7 +241,7 @@ export default function TasksPage() {
           <button
             type="submit"
             disabled={busy || !title.trim()}
-            className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+            className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
           >
             Send for approval
           </button>
@@ -344,7 +344,7 @@ export default function TasksPage() {
               <button
                 onClick={() => setStatus(t, "IN_PROGRESS")}
                 disabled={busy}
-                className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:text-sky-700 disabled:opacity-40"
+                className="shrink-0 rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-400 hover:text-sky-700 disabled:opacity-40"
               >
                 Start
               </button>
@@ -352,7 +352,7 @@ export default function TasksPage() {
               <button
                 onClick={() => setStatus(t, "PENDING")}
                 disabled={busy}
-                className="shrink-0 rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-40"
+                className="shrink-0 rounded-xl border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-40"
               >
                 In progress
               </button>
@@ -361,7 +361,7 @@ export default function TasksPage() {
             <button
               onClick={() => setStatus(t, "COMPLETED")}
               disabled={busy}
-              className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+              className="shrink-0 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
             >
               Mark done
             </button>
@@ -429,12 +429,12 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-5 py-3.5">
+    <section className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
+      <div className="border-b border-indigo-50 px-5 py-3.5">
         <h2 className="text-sm font-medium text-slate-900">{title}</h2>
         {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
       </div>
-      <ul className="divide-y divide-slate-100">{children}</ul>
+      <ul className="divide-y divide-indigo-50">{children}</ul>
     </section>
   );
 }

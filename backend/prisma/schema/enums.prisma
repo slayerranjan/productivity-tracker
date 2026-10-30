@@ -109,6 +109,8 @@ enum TaskWeight {
 // Simple on-leave marking. No balances, no entitlements, no approval flow.
 enum LeaveDayType {
   PLANNED
+  CASUAL
+  EARNED
   SICK
   COMP_OFF
   UNPAID
@@ -216,4 +218,24 @@ enum PunchMatchStatus {
   MATCHED // tied to a user
   UNMATCHED // no user found for this identifier
   AMBIGUOUS // more than one possible user
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+// How a person is employed. Optional: people without one see every document requirement, as before.
+enum EmploymentType {
+  PERMANENT
+  PROBATION
+  CONTRACT
+  INTERN
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  CANCELLED
 }

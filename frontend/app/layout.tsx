@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Productivity Tracker",
-  description: "Attendance, breaks, daily work and HR for the group.",
+  applicationName: "Avatar HRMS",
+  title: { default: "Avatar HRMS", template: "%s | Avatar HRMS" },
+  description: "Avatar HRMS: attendance, breaks, daily work, leave and HR in one place.",
 };
 
 export const viewport: Viewport = {

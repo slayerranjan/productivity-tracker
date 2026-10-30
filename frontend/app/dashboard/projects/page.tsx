@@ -140,7 +140,7 @@ export default function ProjectsPage() {
                 managerId: "",
               });
             }}
-            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+            className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
           >
             {creating ? "Cancel" : "New project"}
           </button>
@@ -148,30 +148,30 @@ export default function ProjectsPage() {
       </header>
 
       <div className="mb-6 flex flex-wrap gap-2">
-        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+        <span className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs text-slate-600">
           {data?.projects.length ?? 0} projects
         </span>
-        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+        <span className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs text-slate-600">
           {byCompany.length} companies
         </span>
-        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+        <span className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs text-slate-600">
           {totalPeople} people assigned
         </span>
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
           {error}
         </div>
       )}
       {notice && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           {notice}
         </div>
       )}
 
       {creating && canManage && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5">
+        <section className="mb-6 rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
           <h2 className="mb-4 text-sm font-medium text-slate-900">
             New project
           </h2>
@@ -184,7 +184,7 @@ export default function ProjectsPage() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="Sales CRM, AI Tools, e-Sports…"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+                className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
               />
             </div>
             <div>
@@ -194,7 +194,7 @@ export default function ProjectsPage() {
               <select
                 value={form.companyId}
                 onChange={(e) => setForm({ ...form, companyId: e.target.value })}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                className="rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
               >
                 {(data?.companies ?? []).map((c) => (
                   <option key={c.id} value={c.id}>
@@ -210,7 +210,7 @@ export default function ProjectsPage() {
               <select
                 value={form.managerId}
                 onChange={(e) => setForm({ ...form, managerId: e.target.value })}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                className="rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
               >
                 <option value="">Decide later</option>
                 {(data?.assignable ?? []).map((p) => (
@@ -236,7 +236,7 @@ export default function ProjectsPage() {
                   setForm({ name: "", companyId: "", managerId: "" });
                 })
               }
-              className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+              className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
             >
               Create
             </button>
@@ -250,7 +250,7 @@ export default function ProjectsPage() {
       )}
 
       {byCompany.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-6 py-14 text-center">
           <p className="text-sm text-slate-500">No projects yet.</p>
         </div>
       ) : (
@@ -273,12 +273,12 @@ export default function ProjectsPage() {
                     <section
                       key={p.id}
                       className={`overflow-hidden rounded-2xl border bg-white ${
-                        p.isActive ? "border-slate-200" : "border-slate-200 opacity-60"
+                        p.isActive ? "border-indigo-100" : "border-indigo-100 opacity-60"
                       }`}
                     >
                       <button
                         onClick={() => setOpenId(open ? null : p.id)}
-                        className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50/60"
+                        className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-indigo-50/60/60"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-slate-900">{p.name}</p>
@@ -288,7 +288,7 @@ export default function ProjectsPage() {
                               : "No manager — nobody approves this work"}
                           </p>
                         </div>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                        <span className="shrink-0 rounded-full bg-[#EEF0FD] px-2.5 py-1 text-xs font-medium text-slate-600">
                           {p.members.length}{" "}
                           {p.members.length === 1 ? "person" : "people"}
                         </span>
@@ -306,9 +306,9 @@ export default function ProjectsPage() {
                       </button>
 
                       {open && (
-                        <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
+                        <div className="border-t border-indigo-50 bg-slate-50/50 px-5 py-4">
                           {!p.manager && canManage && (
-                            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                               Set a manager below — until then, tasks on this
                               project have nobody to approve them.
                             </div>
@@ -323,7 +323,7 @@ export default function ProjectsPage() {
                                 <select
                                   value={openId === p.id ? adding : ""}
                                   onChange={(e) => setAdding(e.target.value)}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                                  className="w-full rounded-xl border border-indigo-100 bg-white px-3 py-2 text-sm text-slate-900"
                                 >
                                   <option value="">Choose a person…</option>
                                   {options.map((o) => (
@@ -347,7 +347,7 @@ export default function ProjectsPage() {
                                     "Added to the project."
                                   ).then(() => setAdding(""))
                                 }
-                                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+                                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
                               >
                                 Add
                               </button>
@@ -364,7 +364,7 @@ export default function ProjectsPage() {
                                     "Manager changed — their team follows."
                                   )
                                 }
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                                className="rounded-xl border border-indigo-100 bg-white px-3 py-2 text-sm text-slate-900"
                               >
                                 <option value="">No manager</option>
                                 {(data?.assignable ?? []).map((a) => (
@@ -381,7 +381,7 @@ export default function ProjectsPage() {
                               Nobody on this project yet.
                             </p>
                           ) : (
-                            <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            <ul className="divide-y divide-indigo-50 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
                               {p.members.map((m) => (
                                 <li
                                   key={m.id}
@@ -418,7 +418,7 @@ export default function ProjectsPage() {
                                               `${p.name} is now their main project.`
                                             )
                                           }
-                                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                                          className="rounded-xl border border-indigo-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-indigo-50/60 disabled:opacity-40"
                                         >
                                           Make main
                                         </button>
@@ -434,7 +434,7 @@ export default function ProjectsPage() {
                                             "Removed from the project."
                                           )
                                         }
-                                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 hover:border-red-200 hover:text-red-600 disabled:opacity-40"
+                                        className="rounded-xl border border-indigo-100 px-3 py-1.5 text-xs font-medium text-slate-500 hover:border-red-200 hover:text-red-600 disabled:opacity-40"
                                       >
                                         Remove
                                       </button>

@@ -67,12 +67,12 @@ const STATUS: Record<
   DONE: {
     label: "Day complete",
     dot: "bg-slate-400",
-    chip: "bg-slate-100 text-slate-600",
+    chip: "bg-[#EEF0FD] text-slate-600",
   },
   NOT_CLOCKED_IN: {
     label: "Not clocked in",
     dot: "bg-slate-300",
-    chip: "bg-slate-50 text-slate-500",
+    chip: "bg-[#F6F7FE] text-slate-500",
   },
   ON_LEAVE: {
     label: "On leave",
@@ -246,7 +246,7 @@ export default function TeamPage() {
         ).map((key) => (
           <div
             key={key}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+            className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-4 py-3"
           >
             <div className="flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 rounded-full ${STATUS[key].dot}`} />
@@ -260,14 +260,14 @@ export default function TeamPage() {
       </div>
 
       {alerts.length > 0 && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+        <section className="mb-6 rounded-2xl bg-white shadow-[var(--shadow-card)] overflow-hidden">
+          <div className="px-5 py-3 border-b border-indigo-50 flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-900">
               Needs attention
             </h2>
             <span className="text-xs text-slate-400">{alerts.length} today</span>
           </div>
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-indigo-50">
             {alerts.map((a) => (
               <li
                 key={a.id}
@@ -298,12 +298,12 @@ export default function TeamPage() {
       )}
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
+        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
           {error}
         </div>
       )}
       {notice && (
-        <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
           {notice}
         </div>
       )}
@@ -323,7 +323,7 @@ export default function TeamPage() {
             <select
               value={meetingType}
               onChange={(e) => setMeetingType(e.target.value)}
-              className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900"
+              className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900"
             >
               {MEETING_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -335,12 +335,12 @@ export default function TeamPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="What's it about? (optional)"
-              className="flex-1 min-w-48 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+              className="flex-1 min-w-48 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
             />
             <button
               disabled={busy || invitable.length === 0}
               onClick={sendInvite}
-              className="rounded-lg bg-indigo-600 text-white text-sm font-medium px-5 py-2 hover:bg-indigo-700 disabled:opacity-50"
+              className="rounded-xl bg-indigo-600 text-white text-sm font-medium px-5 py-2 hover:bg-indigo-700 disabled:opacity-50"
             >
               {busy ? "Sending..." : "Send invite"}
             </button>
@@ -360,9 +360,9 @@ export default function TeamPage() {
         return (
           <section
             key={company}
-            className="mb-6 rounded-2xl border border-slate-200 bg-white overflow-hidden"
+            className="mb-6 rounded-2xl bg-white shadow-[var(--shadow-card)] overflow-hidden"
           >
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-4 bg-slate-50/60">
+            <div className="px-5 py-3 border-b border-indigo-50 flex items-center justify-between gap-4 bg-slate-50/60">
               <div className="flex items-baseline gap-3 min-w-0">
                 <h2 className="text-sm font-semibold text-slate-900 truncate">
                   {company}
@@ -384,7 +384,7 @@ export default function TeamPage() {
 
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100">
+                <tr className="border-b border-indigo-50">
                   <th className="w-10 px-4 py-2.5" />
                   <th className="text-left px-2 py-2.5 font-medium text-slate-500">
                     Person
@@ -409,7 +409,7 @@ export default function TeamPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-indigo-50">
                 {list.map((r) => {
                   const s = STATUS[r.status];
                   const overBreak = r.breakSeconds > r.breakBudget;
@@ -426,7 +426,7 @@ export default function TeamPage() {
                       className={
                         r.pendingInvite
                           ? "bg-violet-50/60"
-                          : "hover:bg-slate-50/60"
+                          : "hover:bg-indigo-50/60/60"
                       }
                     >
                       <td className="px-4 py-3">
@@ -434,7 +434,7 @@ export default function TeamPage() {
                           type="checkbox"
                           checked={selected.includes(r.userId)}
                           onChange={() => toggle(r.userId)}
-                          className="rounded border-slate-300"
+                          className="rounded border-indigo-200"
                         />
                       </td>
                       <td className="px-2 py-3">
@@ -480,7 +480,7 @@ export default function TeamPage() {
                         <p className="text-slate-900 font-medium tabular-nums">
                           {hm(r.productiveSeconds)}
                         </p>
-                        <div className="mt-1 h-1 w-20 ml-auto rounded-full bg-slate-100 overflow-hidden">
+                        <div className="mt-1 h-1 w-20 ml-auto rounded-full bg-[#EEF0FD] overflow-hidden">
                           <div
                             className="h-full bg-emerald-500"
                             style={{ width: `${pct}%` }}
@@ -509,7 +509,7 @@ export default function TeamPage() {
       })}
 
       {rows.length === 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)]">
           <p className="px-6 py-10 text-center text-sm text-slate-400">
             Nobody reports to you yet, and you manage no active teams.
           </p>

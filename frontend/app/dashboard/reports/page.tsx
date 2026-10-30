@@ -127,7 +127,7 @@ function days(value: number): string {
 // Attainment colour band. Green at or above target, amber from 80%, red below.
 function bandClass(value: number): string {
   if (value >= 1) return "text-emerald-700 bg-emerald-50 ring-emerald-200";
-  if (value >= 0.8) return "text-slate-700 bg-slate-50 ring-slate-200";
+  if (value >= 0.8) return "text-slate-700 bg-[#F6F7FE] ring-slate-200";
   if (value >= 0.6) return "text-amber-700 bg-amber-50 ring-amber-200";
   return "text-rose-700 bg-rose-50 ring-rose-200";
 }
@@ -280,14 +280,14 @@ export default function ReportsPage() {
         <button
           onClick={exportCsv}
           disabled={!report || loading}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Export CSV
         </button>
       </div>
 
       {/* --- controls ----------------------------------------------------- */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl bg-white p-4 shadow-[var(--shadow-card)]">
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
             From
@@ -296,7 +296,7 @@ export default function ReportsPage() {
               value={from}
               max={to}
               onChange={(e) => setFrom(e.target.value)}
-              className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+              className="mt-1 block rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none"
             />
           </label>
 
@@ -308,7 +308,7 @@ export default function ReportsPage() {
               min={from}
               max={todayIso()}
               onChange={(e) => setTo(e.target.value)}
-              className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+              className="mt-1 block rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none"
             />
           </label>
 
@@ -317,7 +317,7 @@ export default function ReportsPage() {
               <button
                 key={p}
                 onClick={() => applyPreset(p)}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium capitalize text-slate-600 transition hover:border-slate-400 hover:text-slate-900"
+                className="rounded-xl border border-indigo-100 px-3 py-2 text-xs font-medium capitalize text-slate-600 transition hover:border-slate-400 hover:text-slate-900"
               >
                 {p === "week" ? "Last 7 days" : `This ${p}`}
               </button>
@@ -328,7 +328,7 @@ export default function ReportsPage() {
             <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">
               Group by
             </span>
-            <div className="mt-1 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            <div className="mt-1 inline-flex rounded-xl border border-indigo-100 bg-[#F6F7FE] p-0.5">
               {GROUPS.map((g) => (
                 <button
                   key={g.value}
@@ -364,7 +364,7 @@ export default function ReportsPage() {
       )}
 
       {report && !report.holidaysConfigured && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <div className="rounded-xl border border-indigo-100 bg-[#F6F7FE] px-4 py-3 text-sm text-slate-600">
           No holidays are set up for this period, so public holidays are being counted
           as expected working days. Add them before treating attainment as final.
         </div>
@@ -393,7 +393,7 @@ export default function ReportsPage() {
           <Tile
             label="Productive"
             value={hm(t.productiveSeconds)}
-            sub={`of ${hm(t.targetSeconds)} expected`}
+            sub={`of ${hm(t.targetSeconds)} expected · incl. ${hm(t.meetingSeconds)} meetings`}
           />
           <Tile
             label="Break"
@@ -403,7 +403,7 @@ export default function ReportsPage() {
           <Tile
             label="Late days"
             value={String(t.lateDays)}
-            sub={`${hm(t.meetingSeconds)} in meetings`}
+            sub={`of ${days(t.daysPresent)} days present`}
           />
           <Tile
             label="Alerts"
@@ -422,7 +422,7 @@ export default function ReportsPage() {
           {report.alertBreakdown.map((a) => (
             <span
               key={a.alertType}
-              className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+              className="rounded-full bg-[#EEF0FD] px-3 py-1 text-xs font-medium text-slate-700"
             >
               {ALERT_LABELS[a.alertType] ?? a.alertType.toLowerCase().replace(/_/g, " ")}
               <span className="ml-1.5 text-slate-500">{a.count}</span>
@@ -432,11 +432,11 @@ export default function ReportsPage() {
       )}
 
       {/* --- table -------------------------------------------------------- */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
         <div className="overflow-x-auto">
           {groupBy === "person" ? (
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+              <thead className="bg-[#F6F7FE] text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Person</th>
                   <th className="px-4 py-3 text-right">Expected</th>
@@ -452,9 +452,9 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 text-right">Alerts</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-indigo-50">
                 {report?.people.map((p) => (
-                  <tr key={p.userId} className="transition hover:bg-slate-50/70">
+                  <tr key={p.userId} className="transition hover:bg-indigo-50/60/70">
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-900">{p.name}</div>
                       <div className="text-xs text-slate-500">
@@ -513,7 +513,7 @@ export default function ReportsPage() {
             </table>
           ) : (
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+              <thead className="bg-[#F6F7FE] text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Period</th>
                   <th className="px-4 py-3 text-right">People</th>
@@ -528,9 +528,9 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 text-right">Alerts</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-indigo-50">
                 {report?.buckets.map((b) => (
-                  <tr key={b.key} className="transition hover:bg-slate-50/70">
+                  <tr key={b.key} className="transition hover:bg-indigo-50/60/70">
                     <td className="px-4 py-3 font-medium text-slate-900">{b.key}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                       {b.headcount}
@@ -605,7 +605,7 @@ function Tile({
   accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl bg-white p-4 shadow-[var(--shadow-card)]">
       <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
         {label}
       </div>

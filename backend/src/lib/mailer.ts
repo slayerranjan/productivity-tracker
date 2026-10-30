@@ -24,7 +24,7 @@ const PORT = Number(process.env.SMTP_PORT ?? 587);
 const USER = process.env.SMTP_USER ?? "";
 const PASS = process.env.SMTP_PASS ?? "";
 const FROM =
-  process.env.SMTP_FROM ?? (USER ? `Productivity Tracker <${USER}>` : "");
+  process.env.SMTP_FROM ?? (USER ? `Avatar HRMS <${USER}>` : "");
 
 export const mailConfigured = Boolean(HOST && USER && PASS);
 

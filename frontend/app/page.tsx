@@ -20,7 +20,7 @@ export default function RootPage() {
   }, [router]);
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+    <main className="min-h-screen bg-[var(--background)] flex items-center justify-center">
       <p className="text-sm text-slate-400">Loading…</p>
     </main>
   );

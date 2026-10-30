@@ -15,7 +15,7 @@ function shell(heading: string, company: string, inner: string) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;">
   <tr><td style="background:#0f172a;padding:22px 28px;">
     <p style="margin:0;color:#ffffff;font-size:15px;font-weight:600;">${company}</p>
-    <p style="margin:3px 0 0;color:#94a3b8;font-size:12px;">Productivity Tracker</p>
+    <p style="margin:3px 0 0;color:#94a3b8;font-size:12px;">Avatar HRMS</p>
   </td></tr>
   <tr><td style="padding:30px 28px 10px;">
     <h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;color:#0f172a;font-weight:600;">${heading}</h1>
@@ -23,7 +23,7 @@ function shell(heading: string, company: string, inner: string) {
   </td></tr>
   <tr><td style="padding:18px 28px 26px;border-top:1px solid #e2e8f0;">
     <p style="margin:0;color:#94a3b8;font-size:11px;line-height:1.5;">
-      Automated message from ${company}'s Productivity Tracker.
+      Automated message from ${company}'s Avatar HRMS.
       If you weren't expecting it, please ignore it.
     </p>
   </td></tr>
@@ -189,5 +189,96 @@ ${button("Upload now", `${APP_URL}/onboarding`)}
       input.pending.length === 1 ? "" : "s"
     } still needed`,
     html: shell("Nearly there", input.company, inner),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ATTENDANCE CORRECTIONS
+// Everything an employee typed is escaped: it goes into an HTML email.
+// ---------------------------------------------------------------------------
+const esc = (t: string) =>
+  String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+export function correctionSubmittedEmail(input: {
+  company: string;
+  employee: string;
+  employeeCode: string;
+  date: string;
+  typeLabel: string;
+  recorded: string;
+  requested: string;
+  reason: string;
+}) {
+  const inner = `
+${p("A new attendance correction request is waiting for your decision.")}
+${detailRows([
+  ["Employee", esc(input.employee) + " (" + esc(input.employeeCode) + ")"],
+  ["Attendance date", esc(input.date)],
+  ["Type", esc(input.typeLabel)],
+  ["Currently recorded", esc(input.recorded)],
+  ["Requested", esc(input.requested)],
+  ["Reason", esc(input.reason)],
+])}
+${p("Nothing has been changed. The attendance record stays as it is until you approve.")}
+${button("Review request", APP_URL + "/dashboard/corrections")}
+`;
+  return {
+    subject: "Attendance correction request: " + input.employee + ", " + input.date,
+    html: shell("Attendance correction request", input.company, inner),
+  };
+}
+
+export function correctionDecidedEmail(input: {
+  company: string;
+  firstName: string;
+  approved: boolean;
+  date: string;
+  typeLabel: string;
+  comment: string | null;
+}) {
+  const inner = `
+${p("Hello " + esc(input.firstName) + ",")}
+${p(
+  input.approved
+    ? "Your attendance correction for <strong>" + esc(input.date) + "</strong> (" + esc(input.typeLabel) + ") was <strong>approved</strong>. Your attendance record has been updated."
+    : "Your attendance correction for <strong>" + esc(input.date) + "</strong> (" + esc(input.typeLabel) + ") was <strong>not approved</strong>. Your attendance record is unchanged."
+)}
+${input.comment ? detailRows([["HR comment", esc(input.comment)]]) : ""}
+${button("View my requests", APP_URL + "/dashboard/corrections")}
+`;
+  return {
+    subject: "Attendance correction " + (input.approved ? "approved" : "not approved") + ": " + input.date,
+    html: shell(input.approved ? "Correction approved" : "Correction not approved", input.company, inner),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MEETINGS: an invitation, a change, or a cancellation. All typed text is escaped.
+// ---------------------------------------------------------------------------
+export function meetingEmail(input: {
+  company: string;
+  kind: "invited" | "updated" | "cancelled" | "removed";
+  firstName: string;
+  title: string;
+  when: string;
+  organizer: string;
+  joinUrl: string | null;
+  note: string | null;
+}) {
+  const verb = { invited: "invited you to a meeting", updated: "changed a meeting you are invited to", cancelled: "cancelled a meeting", removed: "removed you from a meeting" }[input.kind];
+  const inner = `
+${p("Hello " + esc(input.firstName) + ",")}
+${p(esc(input.organizer) + " " + verb + ".")}
+${detailRows([
+  ["Meeting", esc(input.title)],
+  ["When", esc(input.when)],
+  ...(input.note ? ([["Note", esc(input.note)]] as [string, string][]) : []),
+])}
+${input.joinUrl && input.kind !== "cancelled" && input.kind !== "removed" ? button("Join meeting", input.joinUrl) : ""}
+${button("Open in Avatar HRMS", APP_URL + "/dashboard/meetings")}
+`;
+  return {
+    subject: { invited: "Meeting invitation: ", updated: "Meeting updated: ", cancelled: "Meeting cancelled: ", removed: "Removed from meeting: " }[input.kind] + input.title,
+    html: shell("Meeting " + input.kind, input.company, inner),
   };
 }

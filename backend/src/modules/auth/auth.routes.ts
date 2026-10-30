@@ -1,8 +1,12 @@
 import { Router } from "express";
 import * as authService from "./auth.service.js";
 import { requireAuth } from "../../middlewares/auth.js";
+import { loginLimiter, clearLoginAttempts } from "../../middlewares/rateLimit.js";
 
 const router = Router();
+
+// Brute-force guard on the credential check only (it ignores other paths).
+router.use(loginLimiter);
 
 router.post("/login", async (req, res) => {
   const { email, password } = req.body ?? {};
@@ -13,6 +17,7 @@ router.post("/login", async (req, res) => {
 
   try {
     const result = await authService.login(email, password);
+    clearLoginAttempts(req);
     return res.json(result);
   } catch (error) {
     const code = error instanceof Error ? error.message : "UNKNOWN";

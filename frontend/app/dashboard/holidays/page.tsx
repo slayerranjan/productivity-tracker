@@ -169,14 +169,14 @@ export default function HolidaysPage() {
 
       {/* ---- year switcher + per-company counts ---- */}
       <div className="mb-6 flex flex-wrap items-center gap-4">
-        <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
+        <div className="flex gap-1 rounded-xl border border-indigo-100 bg-white p-1">
           {(data?.years ?? []).map((y) => (
             <button
               key={y}
               onClick={() => load(y)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 y === year
-                  ? "bg-slate-900 text-white"
+                  ? "bg-indigo-600 text-white"
                   : "text-slate-500 hover:text-slate-900"
               }`}
             >
@@ -189,7 +189,7 @@ export default function HolidaysPage() {
           {(data?.countsByCompany ?? []).map((c) => (
             <span
               key={c.id}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600"
+              className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs text-slate-600"
             >
               {c.name}
               <span className="ml-1.5 font-semibold text-slate-900 tabular-nums">
@@ -201,18 +201,18 @@ export default function HolidaysPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
+        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
           {error}
         </div>
       )}
       {notice && (
-        <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-sm text-emerald-800">
           {notice}
         </div>
       )}
 
       {/* ---- add a holiday ---- */}
-      <section className="mb-8 rounded-2xl border border-slate-200 bg-white p-5">
+      <section className="mb-8 rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
         <h2 className="text-sm font-medium text-slate-900 mb-4">
           Add a holiday
         </h2>
@@ -225,7 +225,7 @@ export default function HolidaysPage() {
               value={date}
               min={data?.today}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+              className="rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
             />
           </div>
 
@@ -237,7 +237,7 @@ export default function HolidaysPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Diwali, Independence Day, Founders Day..."
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+              className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
             />
           </div>
 
@@ -256,7 +256,7 @@ export default function HolidaysPage() {
                     setCompanyId(e.target.value);
                   }
                 }}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                className="rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
               >
                 <option value="__all">All companies</option>
                 {(data?.companies ?? []).map((c) => (
@@ -271,7 +271,7 @@ export default function HolidaysPage() {
           <button
             disabled={!canSubmit}
             onClick={add}
-            className="rounded-lg bg-slate-900 text-white text-sm font-medium px-5 py-2 hover:bg-slate-800 disabled:opacity-40"
+            className="rounded-xl bg-indigo-600 text-white text-sm font-medium px-5 py-2 hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Saving..." : "Add holiday"}
           </button>
@@ -286,7 +286,7 @@ export default function HolidaysPage() {
 
       {/* ---- the year ---- */}
       {byMonth.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-6 py-12 text-center">
           <p className="text-sm text-slate-500">
             No holidays set for {year}.
           </p>
@@ -299,9 +299,9 @@ export default function HolidaysPage() {
           {byMonth.map(([month, list]) => (
             <section
               key={month}
-              className="rounded-2xl border border-slate-200 bg-white overflow-hidden"
+              className="rounded-2xl bg-white shadow-[var(--shadow-card)] overflow-hidden"
             >
-              <div className="px-5 py-2.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+              <div className="px-5 py-2.5 border-b border-indigo-50 bg-slate-50/60 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-900">
                   {MONTHS[month]} {year}
                 </h3>
@@ -310,7 +310,7 @@ export default function HolidaysPage() {
                 </span>
               </div>
 
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-indigo-50">
                 {list.map((h) => (
                   <li
                     key={h.id}

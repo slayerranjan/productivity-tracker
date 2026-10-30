@@ -14,6 +14,10 @@ model WorkSession {
   userId     String   @db.Uuid
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Optional: the project (team) chosen at clock-in.
+  teamId String? @db.Uuid
+  team   Team?   @relation("SessionProject", fields: [teamId], references: [id], onDelete: SetNull)
+
   date     DateTime      @db.Date
   loginAt  DateTime
   logoutAt DateTime?
@@ -193,6 +197,10 @@ model LeaveDay {
 
   note String?
 
+  // Set when this day came from an approved leave request.
+  leaveRequestId String?       @db.Uuid
+  leaveRequest   LeaveRequest? @relation(fields: [leaveRequestId], references: [id], onDelete: SetNull)
+
   markedById String @db.Uuid
   markedBy   User   @relation("LeaveMarker", fields: [markedById], references: [id])
 
@@ -229,4 +237,39 @@ model Alert {
   @@unique([userId, date, alertType])
   @@index([platformId, date])
   @@map("alerts")
+}
+
+// An employee asks for leave; HR/Admin approves or rejects. Only on approval
+// are leave_days rows written, so reports never see a request that is pending.
+model LeaveRequest {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("LeaveRequester", fields: [userId], references: [id], onDelete: Cascade)
+
+  fromDate    DateTime     @db.Date
+  toDate      DateTime     @db.Date
+  leaveType   LeaveDayType
+  isHalfDay   Boolean      @default(false)
+  isFirstHalf Boolean      @default(true)
+  // Working days this request covers (weekly offs and holidays excluded; 0.5 for a half day).
+  dayCount    Float
+  reason      String
+
+  status       LeaveRequestStatus @default(PENDING)
+  decidedById  String?            @db.Uuid
+  decidedBy    User?              @relation("LeaveDecider", fields: [decidedById], references: [id])
+  decidedAt    DateTime?
+  decisionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  days LeaveDay[]
+
+  @@index([platformId, status])
+  @@index([userId, fromDate])
+  @@map("leave_requests")
 }

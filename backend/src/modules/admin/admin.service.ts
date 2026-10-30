@@ -16,8 +16,11 @@
 
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
+import { parseIsoDay } from "../../lib/dates.js";
 import { viewerIsOwner } from "../../lib/owner.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 import { sendWelcome } from "../onboarding/onboarding.mail.js";
+import { auditNote, changedFields } from "../../lib/auditContext.js";
 
 export const USER_ROLES = ["EMPLOYEE", "MANAGER", "HR", "ADMIN"] as const;
 export const USER_STATUSES = ["CANDIDATE", "INVITED", "ACTIVE", "SUSPENDED", "EXITED"] as const;
@@ -30,7 +33,7 @@ export const ONBOARDING_STATUSES = [
   "ACTIVE",
 ] as const;
 export const TEAM_TYPES = ["SALES", "SUPPORT", "TECH", "OPERATIONS", "OTHER"] as const;
-export const LEAVE_TYPES = ["PLANNED", "SICK", "COMP_OFF", "UNPAID", "OTHER"] as const;
+export const LEAVE_TYPES = ["PLANNED", "CASUAL", "EARNED", "SICK", "COMP_OFF", "UNPAID", "OTHER"] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 export type UserStatus = (typeof USER_STATUSES)[number];
@@ -76,9 +79,19 @@ async function samePlatformUser(platformId: string, userId: string) {
 }
 
 function parseDay(value: string): Date {
-  const [y, m, d] = value.split("-").map(Number);
-  if (!y || !m || !d) throw new Error("BAD_DATE");
-  return new Date(Date.UTC(y, m - 1, d));
+  return parseIsoDay(value);
+}
+
+// Only an ADMIN may create, promote, demote, suspend or reset the password of an
+// HR or Admin account. Without this an HR user could make themselves Admin.
+const PRIVILEGED = ["HR", "ADMIN"];
+function assertAdminForRole(viewerRole: string, role: unknown) {
+  if (PRIVILEGED.includes(String(role)) && String(viewerRole) !== "ADMIN") throw new Error("ROLE_NOT_ALLOWED");
+}
+async function assertMayChangeAccount(viewer: { id: string; role: unknown }, userId: string) {
+  if (String(viewer.role) === "ADMIN") return;
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (target && PRIVILEGED.includes(String(target.role)) && userId !== viewer.id) throw new Error("ROLE_NOT_ALLOWED");
 }
 
 function assertTime(value: string, field: string) {
@@ -220,6 +233,7 @@ export async function createUser(
   if (!data.password || data.password.length < 8) throw new Error("WEAK_PASSWORD");
 
   const role = USER_ROLES.find((r) => r === data.role) ?? "EMPLOYEE";
+  assertAdminForRole(viewer.role, role);
 
   // Uniqueness is per platform, not global â€” the same person can legitimately
   // exist in Avatar and in Take Health with the same address.
@@ -316,6 +330,15 @@ export async function createUser(
   // Existing employees skip it: that email is about documents they do not owe.
   const mail = skip ? null : await sendWelcome(created.id, data.password);
 
+  auditNote({
+    module: "Employees",
+    action: "CREATE",
+    recordType: "User",
+    recordId: created.id,
+    targetUserId: created.id,
+    summary: `Created an account for ${data.firstName?.trim()} ${data.lastName?.trim()} as ${role}`,
+    after: { name: `${data.firstName?.trim()} ${data.lastName?.trim()}`.trim(), email, role, employeeCode: (created as { employeeCode?: string | null }).employeeCode ?? null },
+  });
   return { ...created, mail };
 }
 
@@ -340,10 +363,21 @@ export async function updateUser(
 ) {
   const viewer = await actor(viewerId);
   await samePlatformUser(viewer.platformId, userId);
+  await assertMayChangeAccount(viewer, userId);
 
   const role = USER_ROLES.find((r) => r === data.role);
+  assertAdminForRole(viewer.role, role);
+  // Even on their own record, a non-admin cannot change their own role, status or access.
+  if (String(viewer.role) !== "ADMIN" && userId === viewer.id && (role || data.status !== undefined || data.trackerAccessEnabled !== undefined)) {
+    throw new Error("ROLE_NOT_ALLOWED");
+  }
   const status = USER_STATUSES.find((s) => s === data.status);
   const onboardingStatus = ONBOARDING_STATUSES.find((s) => s === data.onboardingStatus);
+
+  // The audit trail records what each changed field WAS and what it became.
+  const AUDIT_KEYS = ["firstName", "lastName", "phone", "role", "status", "designation", "employeeCode", "shiftId", "reportsToId", "biometricId", "dateOfJoining", "onboardingStatus", "trackerAccessEnabled"];
+  const pick = { firstName: true, lastName: true, phone: true, role: true, status: true, designation: true, employeeCode: true, shiftId: true, reportsToId: true, biometricId: true, dateOfJoining: true, onboardingStatus: true, trackerAccessEnabled: true } as const;
+  const beforeRow = await prisma.user.findUnique({ where: { id: userId }, select: pick });
 
   // Opening the gate stamps when it happened; closing it clears the stamp.
   const gate =
@@ -354,7 +388,7 @@ export async function updateUser(
           accessGrantedAt: data.trackerAccessEnabled ? new Date() : null,
         };
 
-  return prisma.user.update({
+  const updatedUser = await prisma.user.update({
     where: { id: userId },
     data: {
       ...(data.firstName !== undefined ? { firstName: data.firstName.trim() } : {}),
@@ -383,15 +417,36 @@ export async function updateUser(
     },
     select: { id: true },
   });
+
+  const afterRow = await prisma.user.findUnique({ where: { id: userId }, select: pick });
+  if (beforeRow && afterRow) {
+    const diff = changedFields(beforeRow as never, afterRow as never, AUDIT_KEYS);
+    // Role, status and tracker access decide what a person can do: those are permission changes.
+    const permission = ["role", "status", "trackerAccessEnabled"].some((k) => k in (diff.after as Record<string, unknown>));
+    const names = Object.keys(diff.after as Record<string, unknown>);
+    auditNote({
+      module: "Employees",
+      action: permission ? "PERMISSION" : "UPDATE",
+      recordType: "User",
+      recordId: userId,
+      targetUserId: userId,
+      before: diff.before,
+      after: diff.after,
+      summary: names.length ? (permission ? "Changed access: " : "Updated: ") + names.join(", ") : "Saved with no changes",
+    });
+  }
+  return updatedUser;
 }
 
 export async function resetPassword(viewerId: string, userId: string, password: string) {
   const viewer = await actor(viewerId);
   await samePlatformUser(viewer.platformId, userId);
+  await assertMayChangeAccount(viewer, userId);
   if (!password || password.length < 8) throw new Error("WEAK_PASSWORD");
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
   await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  auditNote({ module: "Employees", action: "PASSWORD", recordType: "User", recordId: userId, targetUserId: userId, summary: "Password reset by HR/Admin (the password itself is never recorded)" });
   return { ok: true };
 }
 
@@ -478,6 +533,8 @@ export async function createTeam(
 
     return team;
   });
+
+  return created;
 }
 
 export async function updateTeam(
@@ -552,6 +609,12 @@ export async function removeTeamMember(viewerId: string, teamId: string, userId:
     select: { platformId: true },
   });
   if (!team || team.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
+
+  const membership = await prisma.teamMember.findUnique({
+    where: { teamId_userId: { teamId, userId } },
+    select: { teamId: true },
+  });
+  if (!membership) throw new Error("NOT_FOUND");
 
   // Soft removal. Deleting the row would orphan the history of who was in
   // which team when a past report was produced.
@@ -878,6 +941,7 @@ export async function unmarkLeave(viewerId: string, userId: string, dateStr: str
 export async function getAdminOptions(viewerId: string) {
   const viewer = await actor(viewerId);
   const owner = await viewerIsOwner(viewerId);
+  const pinned = await getPinnedCompany();
 
   // Only an owner sees other companies' teams.
   const teamScope = owner ? {} : { platformId: viewer.platformId };
@@ -899,6 +963,8 @@ export async function getAdminOptions(viewerId: string) {
       where: {
         role: { in: ["MANAGER", "ADMIN"] },
         status: { not: "EXITED" },
+        // A deployment pinned to one company offers only that company's managers.
+        ...(pinned ? { platformId: pinned.id } : {}),
       },
       select: {
         id: true,
@@ -942,7 +1008,7 @@ export async function getAdminOptions(viewerId: string) {
     managers: leads.map(asOption),
     people: leads.map(asOption),
     isOwner: owner,
-    roles: USER_ROLES,
+    roles: String(viewer.role) === "ADMIN" ? USER_ROLES : USER_ROLES.filter((r) => !PRIVILEGED.includes(r)),
     statuses: USER_STATUSES,
     onboardingStatuses: ONBOARDING_STATUSES,
     teamTypes: TEAM_TYPES,

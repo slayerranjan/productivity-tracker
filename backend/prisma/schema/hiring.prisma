@@ -91,13 +91,14 @@ model DocumentRequirement {
   sortOrder   Int     @default(0)
 
   // false means HR uploads it (resume, contract)
-  uploadedByEmployee Boolean @default(true)
+  uploadedByEmployee Boolean @default(true)
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   documents EmployeeDocument[]
+  scopes    DocumentRequirementScope[]
 
   @@unique([platformId, label])
   @@index([platformId, isActive])
@@ -197,4 +198,26 @@ model InductionAcknowledgement {
   @@unique([inductionDocumentId, userId, documentVersion])
   @@index([userId])
   @@map("induction_acknowledgements")
+}
+
+// Which employment types a requirement applies to. NO rows = it applies to everyone.
+// (A separate table on purpose: adding columns to existing tables would break every query
+// on a database that has not been migrated yet.)
+model DocumentRequirementScope {
+  requirementId String              @db.Uuid
+  requirement   DocumentRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  employmentType EmploymentType
+
+  @@id([requirementId, employmentType])
+  @@map("document_requirement_scopes")
+}
+
+// How a person is employed. No row = unspecified: they see every requirement, as before.
+model EmployeeProfile {
+  userId         String         @id @db.Uuid
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employmentType EmploymentType
+  updatedAt      DateTime       @updatedAt
+
+  @@map("employee_profiles")
 }
