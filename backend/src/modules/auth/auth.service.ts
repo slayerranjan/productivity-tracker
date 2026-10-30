@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../../lib/prisma.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
+import { auditNote } from "../../lib/auditContext.js";
 
 // ---------------------------------------------------------------------------
 // LOGIN BY EMAIL **OR** EMPLOYEE ID
@@ -15,13 +17,18 @@ import { prisma } from "../../lib/prisma.js";
 // ---------------------------------------------------------------------------
 async function findByIdentifier(identifier: string) {
   const id = identifier.trim();
-  if (!id) return null;
+  if (!id) return [];
 
   // An "@" means they typed an email. Anything else is treated as a code.
+  // The same email may legitimately exist on more than one platform (one
+  // person, two companies), so this returns every candidate. login() decides
+  // which one by checking the password against each.
   if (id.includes("@")) {
-    return prisma.user.findFirst({
+    return prisma.user.findMany({
       where: { email: id.toLowerCase() },
       include: { platform: true },
+      orderBy: { createdAt: "asc" },
+      take: 10,
     });
   }
 
@@ -32,20 +39,25 @@ async function findByIdentifier(identifier: string) {
   });
 
   if (matches.length > 1) throw new Error("DUPLICATE_EMPLOYEE_ID");
-  return matches[0] ?? null;
+  return matches;
 }
 
 export async function login(identifier: string, password: string) {
-  const user = await findByIdentifier(identifier);
+  // A pinned deployment only signs in people of that company. Others get the same
+  // error as an unknown account, so nothing reveals who exists elsewhere.
+  const pinned = await getPinnedCompany();
+  const candidates = (await findByIdentifier(identifier)).filter((c) => !pinned || c.platformId === pinned.id);
 
-  if (!user || !user.passwordHash) {
-    throw new Error("INVALID_CREDENTIALS");
+  // First candidate whose password matches. An unknown identifier and a wrong
+  // password end in the same error, so nothing here reveals which emails exist.
+  let user: (typeof candidates)[number] | null = null;
+  for (const c of candidates) {
+    if (c.passwordHash && (await bcrypt.compare(password, c.passwordHash))) {
+      user = c;
+      break;
+    }
   }
-
-  const matches = await bcrypt.compare(password, user.passwordHash);
-  if (!matches) {
-    throw new Error("INVALID_CREDENTIALS");
-  }
+  if (!user) throw new Error("INVALID_CREDENTIALS");
 
   if (user.status === "SUSPENDED" || user.status === "EXITED") {
     throw new Error("ACCOUNT_INACTIVE");
@@ -61,6 +73,9 @@ export async function login(identifier: string, password: string) {
     where: { id: user.id },
     data: { lastLoginAt: new Date() },
   });
+
+  // The sign-in is attributed to the person who signed in, in their company.
+  auditNote({ actorId: user.id, platformId: user.platformId, targetUserId: user.id, summary: "Signed in" });
 
   return { token, user: publicUser(user) };
 }

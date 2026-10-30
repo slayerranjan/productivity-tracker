@@ -1,3 +1,4 @@
+import { getPinnedCompany } from "../../lib/deployment.js";
 import { prisma } from "../../lib/prisma.js";
 import { platformToday } from "../../lib/dates.js";
 

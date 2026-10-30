@@ -1,15 +1,29 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middlewares/auth.js";
 import * as payroll from "./payroll.service.js";
+import { guardUuidParams, isBadInput } from "../../lib/params.js";
 import * as generate from "./payroll.generate.js";
+import { buildPayslipPdf } from "./payroll.pdf.js";
 
 const router = Router();
+guardUuidParams(router);
 
 function fail(
   res: { status: (n: number) => { json: (b: unknown) => void } },
   err: unknown
 ) {
+  if (isBadInput(err)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = err instanceof Error ? err.message : "UNKNOWN";
+  // Only short error codes (MISSING_FIELDS, NOT_FOUND...) go back to the browser. Anything else is an
+  // unexpected failure (for example database error text with file paths): log it, tell the user nothing.
+  if (!/^[A-Z][A-Z0-9_:]*$/.test(code)) {
+    console.error("[payroll]", err);
+    res.status(500).json({ error: "Something went wrong" });
+    return;
+  }
   const status =
     code === "NOT_ALLOWED" || code === "NOT_YOURS" || code === "NOT_YOUR_COMPANY"
       ? 403
@@ -71,6 +85,24 @@ router.get("/:id/download", async (req, res) => {
     fail(res, err);
   }
 });
+
+// The payslip document. Employees get their own once published; HR gets any
+// in their company. The service decides, not the router.
+router.get("/:id/payslip.pdf", async (req, res) => {
+  try {
+    const { pdf, fileName } = await buildPayslipPdf(
+      req.user!.userId,
+      String(req.params.id)
+    );
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.send(pdf);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 
 // --- HR / ADMIN -----------------------------------------------------------
 router.use(requireRole("HR", "ADMIN"));

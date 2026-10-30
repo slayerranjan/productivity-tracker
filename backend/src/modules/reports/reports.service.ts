@@ -17,7 +17,9 @@
 // ===========================================================================
 
 import { prisma } from "../../lib/prisma.js";
-import { platformToday } from "../../lib/dates.js";
+import { onlyPinnedCompany } from "../../lib/deployment.js";
+import { visibleUserIds } from "../tracker/tracker.service.js";
+import { platformToday, parseIsoDay } from "../../lib/dates.js";
 
 export type GroupBy = "person" | "day" | "week" | "month" | "year";
 
@@ -48,9 +50,7 @@ function toKey(date: Date): string {
 }
 
 function parseDay(value: string): Date {
-  const [y, m, d] = value.split("-").map(Number);
-  if (!y || !m || !d) throw new Error("BAD_DATE");
-  return new Date(Date.UTC(y, m - 1, d));
+  return parseIsoDay(value);
 }
 
 // ISO week: weeks start Monday, and the week belongs to whichever year holds
@@ -96,17 +96,9 @@ async function resolveScope(viewerId: string) {
   if (viewer.role === "EMPLOYEE") {
     userIds = [viewer.id];
   } else if (viewer.role === "MANAGER") {
-    const myTeams = await prisma.teamMember.findMany({
-      where: { userId: viewer.id, isActive: true },
-      select: { teamId: true },
-    });
-
-    const peers = await prisma.teamMember.findMany({
-      where: { teamId: { in: myTeams.map((t) => t.teamId) }, isActive: true },
-      select: { userId: true },
-    });
-
-    userIds = Array.from(new Set([viewer.id, ...peers.map((p) => p.userId)]));
+    // Same rule as Live Team and the task queue: teams they run + direct reports (plus themselves).
+    const team = await visibleUserIds(viewer);
+    userIds = await onlyPinnedCompany(Array.from(new Set([viewer.id, ...team])));
   } else {
     const everyone = await prisma.user.findMany({
       where: { platformId: viewer.platformId },
@@ -126,13 +118,21 @@ export async function getTeamReport(
   viewerId: string,
   fromStr: string,
   toStr: string,
-  groupBy: GroupBy = "person"
+  groupBy: GroupBy = "person",
+  onlyUserId?: string
 ) {
   const from = parseDay(fromStr);
   const to = parseDay(toStr);
   if (to.getTime() < from.getTime()) throw new Error("BAD_RANGE");
 
-  const { viewer, userIds } = await resolveScope(viewerId);
+  const { viewer, userIds: visibleIds } = await resolveScope(viewerId);
+
+  // Optional single-person view. It can only NARROW the list the viewer is
+  // already allowed to see; an id outside that list yields an empty report,
+  // never someone else's data.
+  const userIds = onlyUserId
+    ? visibleIds.filter((id) => id === onlyUserId)
+    : visibleIds;
 
   if (userIds.length === 0) {
     return emptyReport(fromStr, toStr, groupBy);

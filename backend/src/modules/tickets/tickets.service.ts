@@ -8,6 +8,7 @@
 // ===========================================================================
 
 import { prisma } from "../../lib/prisma.js";
+import { parseIsoDay } from "../../lib/dates.js";
 import { recompute } from "../tracker/tracker.service.js";
 
 export const TICKET_CATEGORIES = [
@@ -42,9 +43,7 @@ const TARGET_HOURS: Record<Category, number> = {
 const STAFF_ROLES = new Set(["MANAGER", "HR", "ADMIN"]);
 
 function parseDay(value: string): Date {
-  const [y, m, d] = value.split("-").map(Number);
-  if (!y || !m || !d) throw new Error("BAD_DATE");
-  return new Date(Date.UTC(y, m - 1, d));
+  return parseIsoDay(value);
 }
 
 async function actor(viewerId: string) {
@@ -100,6 +99,13 @@ async function nextReference(platformId: string): Promise<string> {
 // CREATE
 // ===========================================================================
 
+// A clock time from the client must be a real moment, otherwise the database call fails with a 500.
+function parseInstant(value: unknown): Date {
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) throw new Error("BAD_TIME");
+  return d;
+}
+
 export async function createTicket(
   viewerId: string,
   data: {
@@ -135,12 +141,8 @@ export async function createTicket(
     }
     correction = {
       correctionDate: day,
-      requestedLoginAt: data.requestedLoginAt
-        ? new Date(data.requestedLoginAt)
-        : undefined,
-      requestedLogoutAt: data.requestedLogoutAt
-        ? new Date(data.requestedLogoutAt)
-        : undefined,
+      requestedLoginAt: data.requestedLoginAt ? parseInstant(data.requestedLoginAt) : undefined,
+      requestedLogoutAt: data.requestedLogoutAt ? parseInstant(data.requestedLogoutAt) : undefined,
     };
   }
 

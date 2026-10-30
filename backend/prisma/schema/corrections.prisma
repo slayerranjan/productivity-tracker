@@ -1,0 +1,110 @@
+// ---------------------------------------------------------------------------
+// ATTENDANCE CORRECTIONS
+// An employee asks; HR/Admin decides. Nothing about attendance changes until
+// approval, and every applied change keeps the before/after values.
+// ---------------------------------------------------------------------------
+
+enum CorrectionType {
+  MISSING_CHECKIN
+  MISSING_CHECKOUT
+  INCORRECT_TIME
+  BIOMETRIC_FAILURE
+  FORGOT_CLOCK_IN
+  OTHER
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model AttendanceCorrectionRequest {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("CorrectionRequester", fields: [userId], references: [id], onDelete: Cascade)
+
+  // The session this concerns when one existed at request time. No foreign key
+  // on purpose: the audit trail must outlive any change to the session row.
+  workSessionId String? @db.Uuid
+
+  date           DateTime       @db.Date
+  correctionType CorrectionType
+
+  // What the system had when the request was made, and what the employee asks for.
+  originalLoginAt   DateTime?
+  originalLogoutAt  DateTime?
+  requestedLoginAt  DateTime?
+  requestedLogoutAt DateTime?
+
+  reason         String
+  attachmentKey  String?
+  attachmentName String?
+
+  status        CorrectionStatus @default(PENDING)
+  reviewedById  String?          @db.Uuid
+  reviewedBy    User?            @relation("CorrectionReviewer", fields: [reviewedById], references: [id])
+  reviewedAt    DateTime?
+  reviewComment String?
+  // Stamped when the approved change was written to the work session.
+  appliedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  audits AttendanceCorrectionAudit[]
+
+  @@index([platformId, status, createdAt])
+  @@index([userId, date])
+  @@map("attendance_correction_requests")
+}
+
+// One row per applied correction: the session as it was, and as it became.
+model AttendanceCorrectionAudit {
+  id        String                      @id @default(uuid()) @db.Uuid
+  requestId String                      @db.Uuid
+  request   AttendanceCorrectionRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  platformId    String  @db.Uuid
+  userId        String  @db.Uuid // the employee whose attendance changed
+  workSessionId String? @db.Uuid
+  action        String // "APPLIED"
+
+  before Json
+  after  Json
+
+  actedById String @db.Uuid
+  actedBy   User   @relation("CorrectionActor", fields: [actedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([requestId])
+  @@index([userId, createdAt])
+  @@map("attendance_correction_audits")
+}
+
+// A simple in-app inbox. Generic on purpose: other features can post here later.
+model Notification {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  type  String // for example CORRECTION_SUBMITTED, CORRECTION_DECIDED
+  title String
+  body  String
+  link  String? // an app path, for example /dashboard/corrections
+  data  Json?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}

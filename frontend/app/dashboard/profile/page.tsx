@@ -109,7 +109,7 @@ export default function ProfilePage() {
   return (
     <div className="p-8 max-w-4xl">
       {/* ---- identity ---- */}
-      <section className="mb-6 overflow-hidden rounded-2xl bg-[var(--sidebar)]">
+      <section className="mb-6 overflow-hidden rounded-2xl bg-indigo-600">
         <div className="flex flex-col gap-5 p-7 sm:flex-row sm:items-center">
           <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-2xl font-bold text-white">
             {initials(fullName)}
@@ -117,19 +117,19 @@ export default function ProfilePage() {
 
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-white">{fullName}</h1>
-            <p className="mt-0.5 text-sm text-slate-400">
+            <p className="mt-0.5 text-sm text-indigo-100">
               {me.designation ?? "No designation set"}
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-slate-200">
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white">
                 {me.platform.name}
               </span>
-              <span className="rounded-full bg-indigo-500/20 px-2.5 py-1 text-xs font-medium text-indigo-200">
+              <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-white">
                 {ROLE_LABEL[me.role] ?? me.role}
               </span>
               {me.employeeCode && (
-                <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-slate-200">
+                <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white">
                   ID {me.employeeCode}
                 </span>
               )}
@@ -150,9 +150,9 @@ export default function ProfilePage() {
               value: me.trackerAccessEnabled ? "Open" : "Locked",
             },
           ].map((cell) => (
-            <div key={cell.label} className="bg-[var(--sidebar)] px-5 py-3.5">
-              <p className="text-[11px] text-slate-500">{cell.label}</p>
-              <p className="mt-0.5 truncate text-sm font-medium text-slate-100">
+            <div key={cell.label} className="bg-indigo-600 px-5 py-3.5">
+              <p className="text-[11px] text-indigo-200">{cell.label}</p>
+              <p className="mt-0.5 truncate text-sm font-medium text-white">
                 {cell.value}
               </p>
             </div>
@@ -161,14 +161,14 @@ export default function ProfilePage() {
       </section>
 
       {notes.length > 0 && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
           {notes.join(" ")}
         </div>
       )}
 
       {/* ---- offer letter ---- */}
-      <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-3.5">
+      <section className="mb-6 overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
+        <div className="flex items-center justify-between gap-4 border-b border-indigo-50 px-5 py-3.5">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">
               Offer letter
@@ -193,14 +193,14 @@ export default function ProfilePage() {
               </span>
               <button
                 onClick={() => setShowLetter((v) => !v)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-xl border border-indigo-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-indigo-50/60"
               >
                 {showLetter ? "Hide" : "Read"}
               </button>
               {showLetter && (
                 <button
                   onClick={() => window.print()}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                  className="rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
                 >
                   Save as PDF
                 </button>
@@ -227,7 +227,7 @@ export default function ProfilePage() {
       </section>
 
            {/* ---- payslips: a pointer, not a second list ---- */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white no-print">
+      <section className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)] no-print">
         <div className="flex items-center justify-between gap-4 px-5 py-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Payslips</h2>
@@ -240,7 +240,7 @@ export default function ProfilePage() {
           {published.length > 0 && (
             <a
               href="/dashboard/payslips"
-              className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="shrink-0 rounded-xl border border-indigo-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-indigo-50/60"
             >
               Open payslips
             </a>

@@ -6,15 +6,16 @@
    change to the brand is a change to this block and nothing else.
 --------------------------------------------------------------------------- */
 :root {
-  --background: #f6f7f9;
-  --foreground: #0f172a;
+  /* Soft lavender canvas: white cards float on it. Every page inherits it. */
+  --background: #f1f2fc;
+  --foreground: #1e293b;
 
   /* Brand — indigo for action, emerald for "working", amber for "on break" */
-  --brand-50: #eef2ff;
-  --brand-100: #e0e7ff;
-  --brand-500: #6366f1;
-  --brand-600: #4f46e5;
-  --brand-700: #4338ca;
+  --brand-50: #f1f2fc;
+  --brand-100: #e5e7f4;
+  --brand-500: #6b7cf0;
+  --brand-600: #5368ed;
+  --brand-700: #4254d6;
 
   /* The sidebar is deliberately dark: it frames the work area and makes the
      white content cards read as the surface you act on. */
@@ -23,12 +24,36 @@
   --sidebar-text: #94a3b8;
   --sidebar-active: #ffffff;
 
-  --ring: rgba(99, 102, 241, 0.35);
+  /* Light navigation (the dark --sidebar above stays for the Profile hero). */
+  --nav-bg: #ffffff;
+  --nav-hover: #f3f4fe;
+  --nav-text: #718096;
+  --nav-active-bg: #e9ecfd;
+  --nav-active: #5368ed;
+
+  --ring: rgba(83, 104, 237, 0.35);
 
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04),
     0 1px 3px rgba(15, 23, 42, 0.06);
   --shadow-lift: 0 4px 6px -1px rgba(15, 23, 42, 0.07),
     0 10px 20px -5px rgba(15, 23, 42, 0.08);
+}
+
+@theme {
+  --color-indigo-50: #f1f2fc;
+  --color-indigo-100: #e5e7f4;
+  --color-indigo-200: #cdd2f8;
+  --color-indigo-300: #a9b2f4;
+  --color-indigo-400: #8592f0;
+  --color-indigo-500: #6b7cf0;
+  --color-indigo-600: #5368ed;
+  --color-indigo-700: #4254d6;
+  --color-indigo-800: #3745b0;
+  --color-indigo-900: #2e3a8c;
+
+  /* Text: #1E293B primary, #718096 secondary */
+  --color-slate-900: #1e293b;
+  --color-slate-500: #718096;
 }
 
 @theme inline {
@@ -198,7 +223,7 @@ button:not(:disabled):active {
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: #e8ecf1;
+  background: #e5e7f4;
   border-radius: 8px;
 }
 .skeleton::after {

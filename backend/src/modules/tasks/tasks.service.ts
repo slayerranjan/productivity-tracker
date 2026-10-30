@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
-import { platformToday } from "../../lib/dates.js";
+import { inPinnedCompany, onlyPinnedCompany } from "../../lib/deployment.js";
+import { parseIsoDay, platformToday } from "../../lib/dates.js";
 
 // ---------------------------------------------------------------------------
 // SCORING
@@ -53,6 +54,7 @@ async function assertCanReviewTask(
   actor: { id: string; role: string; platformId: string },
   task: { userId: string; teamId: string | null }
 ) {
+  if (!(await inPinnedCompany(task.userId))) throw new Error("NOT_YOUR_TEAM");
   if (task.teamId) {
     const team = await prisma.team.findUnique({
       where: { id: task.teamId },
@@ -83,6 +85,7 @@ async function assertCanManage(
   actor: { id: string; role: string; platformId: string },
   targetUserId: string
 ) {
+  if (!(await inPinnedCompany(targetUserId))) throw new Error("NOT_YOUR_TEAM");
   const target = await prisma.user.findUnique({
     where: { id: targetUserId },
     select: { platformId: true, reportsToId: true },
@@ -151,7 +154,7 @@ async function manageableUserIds(actor: {
     for (const u of all) ids.add(u.id);
   }
 
-  return Array.from(ids);
+  return onlyPinnedCompany(Array.from(ids));
 }
 
 async function myProjects(userId: string) {
@@ -477,8 +480,7 @@ export async function listForApproval(
   // Default view is today plus anything still pending from earlier days, so
   // nothing quietly ages out. Give a range and you get exactly that range -
   // which is what "show me last week, for this person" needs.
-  const asUtcDay = (s?: string) =>
-    s ? new Date(s + "T00:00:00.000Z") : undefined;
+  const asUtcDay = (s?: string) => (s ? parseIsoDay(s) : undefined);
   const fromDate = asUtcDay(range?.from);
   const toDate = asUtcDay(range?.to);
 
@@ -689,6 +691,9 @@ export async function approveTask(
   const ctx = await userContext(managerId);
   if (!MANAGING_ROLES.includes(ctx.role)) throw new Error("NOT_ALLOWED");
   const actor = { id: managerId, role: ctx.role, platformId: ctx.platformId };
+
+  // Whoever proposed the task deserves to know why it was turned down.
+  if (!approve && !String(note ?? "").trim()) throw new Error("REASON_REQUIRED");
 
   const task = await prisma.dailyTask.findUnique({ where: { id: taskId } });
   if (!task) throw new Error("NOT_FOUND");

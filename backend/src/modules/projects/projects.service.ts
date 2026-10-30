@@ -1,4 +1,6 @@
+import { getPinnedCompany } from "../../lib/deployment.js";
 import { prisma } from "../../lib/prisma.js";
+import { isUuid } from "../../lib/params.js";
 
 // ---------------------------------------------------------------------------
 // PROJECTS
@@ -42,11 +44,12 @@ export async function listProjects(viewerId: string) {
   if (!isStaff && a.role !== "MANAGER") throw new Error("NOT_ALLOWED");
 
   const platformIds = await visiblePlatformIds(a);
+  const pinned = await getPinnedCompany();
 
   const teams = await prisma.team.findMany({
     where: isStaff
       ? { platformId: { in: platformIds } }
-      : { managerId: viewerId },
+      : { managerId: viewerId, ...(pinned ? { platformId: pinned.id } : {}) },
     select: {
       id: true,
       name: true,
@@ -54,10 +57,10 @@ export async function listProjects(viewerId: string) {
       platformId: true,
       platform: { select: { id: true, name: true } },
       manager: {
-        select: { id: true, firstName: true, lastName: true, employeeCode: true },
+        select: { id: true, firstName: true, lastName: true, employeeCode: true, platformId: true },
       },
       members: {
-        where: { isActive: true },
+        where: { isActive: true, ...(pinned ? { user: { platformId: pinned.id } } : {}) },
         select: {
           isPrimary: true,
           user: {
@@ -119,11 +122,12 @@ export async function listProjects(viewerId: string) {
       isActive: t.isActive,
       companyId: t.platform?.id ?? t.platformId,
       company: t.platform?.name ?? null,
-      managerId: t.manager?.id ?? null,
-      manager: t.manager
+      // A pinned deployment does not show a manager who belongs to another company.
+      managerId: (pinned && t.manager?.platformId !== pinned.id ? null : t.manager?.id) ?? null,
+      manager: t.manager && !(pinned && t.manager.platformId !== pinned.id)
         ? `${t.manager.firstName} ${t.manager.lastName}`.trim()
         : null,
-      managerCode: t.manager?.employeeCode ?? null,
+      managerCode: pinned && t.manager?.platformId !== pinned.id ? null : (t.manager?.employeeCode ?? null),
       members: t.members.map((m) => ({
         id: m.user.id,
         name: `${m.user.firstName} ${m.user.lastName}`.trim(),
@@ -150,6 +154,8 @@ export async function saveProject(
   const platformIds = await visiblePlatformIds(a);
   const id = body.id ? String(body.id) : null;
   const managerId = body.managerId ? String(body.managerId) : null;
+  if (managerId && !isUuid(managerId)) throw new Error("MANAGER_NOT_FOUND");
+  if (id && !isUuid(id)) throw new Error("NOT_FOUND");
 
   // The manager must be someone real and visible to this staff member.
   if (managerId) {
@@ -249,6 +255,7 @@ export async function addMember(
   assertStaff(a.role);
 
   const userId = String(body.userId ?? "");
+  if (!isUuid(userId)) throw new Error("USER_NOT_FOUND");
   if (!userId) throw new Error("USER_REQUIRED");
 
   const platformIds = await visiblePlatformIds(a);

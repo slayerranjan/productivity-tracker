@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Bell from "./_notifications/Bell";
 import Link from "next/link";
 import { apiGet, clearToken, getToken } from "@/lib/api";
 
@@ -28,6 +29,14 @@ export const useMe = () => useContext(MeContext);
 // ---------------------------------------------------------------------------
 type IconProps = { className?: string };
 const I = {
+  grid: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...p}>
+      <rect x="3" y="3" width="6" height="6" rx="1.4" />
+      <rect x="11" y="3" width="6" height="6" rx="1.4" />
+      <rect x="3" y="11" width="6" height="6" rx="1.4" />
+      <rect x="11" y="11" width="6" height="6" rx="1.4" />
+    </svg>
+  ),
   today: (p: IconProps) => (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...p}>
       <circle cx="10" cy="10" r="7" />
@@ -105,6 +114,11 @@ type NavItem = {
   label: string;
   ready: boolean;
   roles?: string[];
+  // Hidden for these roles. HR and Admin get the HR dashboard at /dashboard,
+  // so the "Today" entry that other roles see is replaced for them.
+  notRoles?: string[];
+  // A live count shown beside the label (HR: requests waiting for a decision).
+  badge?: "corrections";
   icon: (p: IconProps) => React.ReactElement;
 };
 
@@ -113,29 +127,38 @@ type NavItem = {
 // that HR touches once a month.
 const GROUPS: { title: string; items: NavItem[] }[] = [
   {
+    title: "Main",
+    items: [
+      { href: "/dashboard", label: "Dashboard", ready: true, roles: ["HR", "ADMIN"], icon: I.grid },
+      { href: "/dashboard", label: "Today", ready: true, notRoles: ["HR", "ADMIN"], icon: I.today },
+      { href: "/dashboard/admin", label: "Employees", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
+      { href: "/dashboard/team", label: "Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.holidays },
+      { href: "/dashboard/corrections", label: "Corrections", ready: true, roles: ["HR", "ADMIN"], badge: "corrections", icon: I.history },
+      { href: "/dashboard/today", label: "Productivity Tracker", ready: true, roles: ["HR", "ADMIN"], icon: I.today },
+      { href: "/dashboard/approvals", label: "Tasks & Performance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.approvals },
+      { href: "/dashboard/reports", label: "Reports & Analytics", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.reports },
+    ],
+  },
+  {
     title: "Me",
     items: [
-      { href: "/dashboard", label: "Today", ready: true, icon: I.today },
       { href: "/dashboard/tasks", label: "Daily Tasks", ready: true, icon: I.tasks },
       { href: "/dashboard/history", label: "My History", ready: true, icon: I.history },
+      { href: "/dashboard/corrections", label: "Corrections", ready: true, notRoles: ["HR", "ADMIN"], icon: I.approvals },
+      { href: "/dashboard/leave", label: "Leave", ready: true, icon: I.holidays },
+      { href: "/dashboard/documents", label: "Documents", ready: true, icon: I.payslip },
+      { href: "/dashboard/meetings", label: "Meetings", ready: true, icon: I.team },
+      { href: "/dashboard/policies", label: "Policies", ready: true, icon: I.approvals },
       { href: "/dashboard/tickets", label: "Tickets", ready: true, icon: I.ticket },
       { href: "/dashboard/payslips", label: "My Payslips", ready: true, icon: I.payslip },
       { href: "/dashboard/profile", label: "My Profile", ready: true, icon: I.payslip },
-            { href: "/change-password", label: "Change password", ready: true, icon: I.admin },
+      { href: "/change-password", label: "Change password", ready: true, icon: I.admin },
     ],
   },
   {
-    title: "My team",
-    items: [
-      { href: "/dashboard/approvals", label: "Approvals", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.approvals },
-      { href: "/dashboard/team", label: "Live Team", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.team },
-      { href: "/dashboard/reports", label: "Reports", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.reports },
-    ],
-  },
-  {
-    // Hiring is its own section, not part of Setup and not part of Approvals.
-    // Approvals means a manager clearing someone's daily tasks; this is HR
-    // clearing documents. Same word, different job, different people.
+    // Hiring is its own section, not part of Settings and not part of
+    // Approvals. Approvals means a manager clearing someone's daily tasks;
+    // this is HR clearing documents. Same word, different job.
     title: "Hiring",
     items: [
       { href: "/dashboard/candidates", label: "Joiners", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
@@ -143,21 +166,23 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     ],
   },
   {
-    title: "Setup",
+    title: "Settings",
     items: [
       { href: "/dashboard/projects", label: "Projects", ready: true, roles: ["HR", "ADMIN"], icon: I.tasks },
-     { href: "/dashboard/holidays", label: "Holidays", ready: true, roles: ["HR", "ADMIN"], icon: I.holidays },
+      { href: "/dashboard/companies", label: "Companies", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
+      { href: "/dashboard/audit-logs", label: "Audit log", ready: true, roles: ["HR", "ADMIN"], icon: I.reports },
+      { href: "/dashboard/holidays", label: "Holidays", ready: true, roles: ["HR", "ADMIN"], icon: I.holidays },
       { href: "/dashboard/payroll", label: "Payroll", ready: true, roles: ["HR", "ADMIN"], icon: I.payroll },
-      { href: "/dashboard/admin", label: "Admin", ready: true, roles: ["ADMIN", "HR"], icon: I.admin },
+      { href: "/dashboard/admin?tab=Teams", label: "Teams, shifts & rules", ready: true, roles: ["ADMIN", "HR"], icon: I.admin },
     ],
   },
 ];
 
 const ROLE_CHIP: Record<string, string> = {
-  ADMIN: "bg-violet-500/15 text-violet-300",
-  HR: "bg-sky-500/15 text-sky-300",
-  MANAGER: "bg-emerald-500/15 text-emerald-300",
-  EMPLOYEE: "bg-slate-500/20 text-slate-300",
+  ADMIN: "bg-violet-100 text-violet-700",
+  HR: "bg-sky-100 text-sky-700",
+  MANAGER: "bg-emerald-100 text-emerald-700",
+  EMPLOYEE: "bg-slate-100 text-slate-600",
 };
 
 function initials(name: string) {
@@ -179,6 +204,7 @@ export default function DashboardLayout({
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
+  const [pendingCorrections, setPendingCorrections] = useState(0);
 
   useEffect(() => {
     if (!getToken()) {
@@ -204,6 +230,33 @@ export default function DashboardLayout({
       .catch((err) => setError(err.message));
 
   }, [router]);
+
+  // The tab shows the page you are on, under the product name.
+  useEffect(() => {
+    const role = me?.role ?? "";
+    const item = GROUPS.flatMap((g) => g.items).find(
+      (i) => i.href.split("?")[0] === pathname && (!i.roles || i.roles.includes(role)) && !(i.notRoles ?? []).includes(role)
+    );
+    document.title = item ? `${item.label} | Avatar HRMS` : "Avatar HRMS";
+  }, [pathname, me?.role]);
+
+  // HR/Admin: how many correction requests are waiting. Refreshed every minute and when the tab is focused.
+  const isReviewer = me?.role === "HR" || me?.role === "ADMIN";
+  useEffect(() => {
+    if (!isReviewer) return;
+    const load = () => {
+      apiGet<{ pending: number }>("/attendance-corrections/pending-count")
+        .then((r) => setPendingCorrections(r.pending))
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 60_000);
+    window.addEventListener("focus", load);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+  }, [isReviewer, pathname]);
 
   // Close the mobile drawer on navigation, otherwise it covers the page you
   // just asked for.
@@ -243,7 +296,7 @@ export default function DashboardLayout({
   if (!me) {
     return (
       <div className="min-h-screen flex bg-[var(--background)]">
-        <div className="hidden w-64 shrink-0 bg-[var(--sidebar)] lg:block" />
+        <div className="m-4 mr-0 hidden w-64 shrink-0 rounded-3xl bg-white shadow-[var(--shadow-lift)] lg:block" />
         <div className="flex-1 p-8">
           <div className="skeleton h-4 w-24" />
           <div className="skeleton mt-3 h-8 w-64" />
@@ -261,45 +314,53 @@ export default function DashboardLayout({
   const fullName = `${me.firstName} ${me.lastName}`.trim();
   const groups = GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((i) => !i.roles || i.roles.includes(me.role)),
+    items: g.items.filter(
+      (i) =>
+        (!i.roles || i.roles.includes(me.role)) &&
+        !(i.notRoles && i.notRoles.includes(me.role))
+    ),
   })).filter((g) => g.items.length > 0);
 
   const sidebar = (
-    <aside className="flex h-full w-64 shrink-0 flex-col bg-[var(--sidebar)]">
-      {/* Company identity. With ten companies in the group, knowing which one
-          you're signed into matters more than the product name. */}
-      <div className="flex items-center gap-3 px-5 py-5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-[13px] font-bold text-white">
-          {initials(me.platform.name)}
+    <aside className="flex h-full w-64 shrink-0 flex-col rounded-3xl bg-[var(--nav-bg)] shadow-[var(--shadow-lift)]">
+      {/* Brand. The product is HRMS; the company you are signed into sits
+          underneath, because with ten companies in the group, knowing which
+          one matters. */}
+      <div className="flex items-center gap-2.5 px-5 pb-4 pt-6">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-600/30">
+          <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 5v14M17 5v14M7 12h10" />
+          </svg>
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold leading-tight text-white">
-            {me.platform.name}
-          </p>
-          <p className="text-[11px] text-slate-500">Productivity Tracker</p>
+          <p className="whitespace-nowrap text-[17px] font-bold leading-tight tracking-tight text-slate-900">Avatar HRMS</p>
+          <p className="truncate text-[11px] text-slate-500">{me.platform.name}</p>
         </div>
+        <div className="ml-auto shrink-0"><Bell /></div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-4">
+      <nav className="flex-1 overflow-y-auto pb-4">
         {groups.map((group) => (
-          <div key={group.title} className="mb-5">
-            <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+          <div key={group.title} className="mb-4">
+            <p className="px-6 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
               {group.title}
             </p>
             <div className="space-y-0.5">
               {group.items.map((item) => {
-                const active = pathname === item.href;
+                // Items that deep-link with ?tab= are never "active"; the
+                // plain page entry owns the highlight.
+                const active = !item.href.includes("?") && pathname === item.href;
                 const Icon = item.icon;
 
                 if (!item.ready) {
                   return (
                     <div
-                      key={item.href}
-                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-600"
+                      key={item.label}
+                      className="mx-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-slate-400"
                     >
                       <Icon className="h-[18px] w-[18px] shrink-0" />
                       <span className="flex-1">{item.label}</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-500">
                         soon
                       </span>
                     </div>
@@ -308,25 +369,28 @@ export default function DashboardLayout({
 
                 return (
                   <Link
-                    key={item.href}
+                    key={item.label}
                     href={item.href}
-                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${
+                    className={`group relative mx-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] ${
                       active
-                        ? "bg-white/10 font-medium text-[var(--sidebar-active)]"
-                        : "text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover)] hover:text-slate-100"
+                        ? "bg-[var(--nav-active-bg)] font-semibold text-[var(--nav-active)]"
+                        : "text-[var(--nav-text)] hover:bg-[var(--nav-hover)] hover:text-slate-900"
                     }`}
                   >
-                    {/* The active marker is a bar, not a background tint —
-                        it survives at a glance from across a desk. */}
-                    {active && (
-                      <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-indigo-400" />
-                    )}
                     <Icon
                       className={`h-[18px] w-[18px] shrink-0 ${
-                        active ? "text-indigo-300" : "text-slate-500 group-hover:text-slate-300"
+                        active ? "text-[var(--nav-active)]" : "text-slate-400 group-hover:text-indigo-500"
                       }`}
                     />
                     <span className="truncate">{item.label}</span>
+                    {item.badge === "corrections" && pendingCorrections > 0 && (
+                      <span data-testid="corrections-badge" className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{Math.min(99, pendingCorrections)}</span>
+                    )}
+                    {/* The reference marks the current page with a bar on the
+                        card's outer edge, readable from across a desk. */}
+                    {active && (
+                      <span className="absolute -right-3 top-1/2 h-8 w-1 -translate-y-1/2 rounded-l bg-[var(--nav-active)]" />
+                    )}
                   </Link>
                 );
               })}
@@ -335,13 +399,13 @@ export default function DashboardLayout({
         ))}
       </nav>
 
-      <div className="border-t border-white/5 p-3">
+      <div className="border-t border-slate-100 p-3">
         <div className="flex items-center gap-2.5 px-2 py-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[11px] font-semibold text-slate-200">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[12px] font-semibold text-indigo-700">
             {initials(fullName)}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-medium text-slate-100">
+            <p className="truncate text-[13px] font-semibold text-slate-900">
               {fullName}
             </p>
             <div className="mt-0.5 flex items-center gap-1.5">
@@ -353,7 +417,7 @@ export default function DashboardLayout({
                 {me.role.charAt(0) + me.role.slice(1).toLowerCase()}
               </span>
               {me.employeeCode && (
-                <span className="truncate text-[10px] text-slate-500">
+                <span className="truncate text-[10px] text-slate-400">
                   {me.employeeCode}
                 </span>
               )}
@@ -362,13 +426,13 @@ export default function DashboardLayout({
         </div>
         <button
           onClick={signOut}
-          className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-[var(--sidebar-hover)] hover:text-slate-200"
+          className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-[var(--nav-text)] hover:bg-[var(--nav-hover)] hover:text-slate-900"
         >
-          <svg viewBox="0 0 20 20" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <svg viewBox="0 0 20 20" className="h-[18px] w-[18px] text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M8 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" strokeLinecap="round" />
             <path d="M12.5 7 15.5 10l-3 3M15.5 10H8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Sign out
+          Logout
         </button>
       </div>
     </aside>
@@ -378,7 +442,7 @@ export default function DashboardLayout({
     <MeContext.Provider value={me}>
       <div className="flex min-h-screen bg-[var(--background)]">
         {/* Desktop */}
-        <div className="sticky top-0 hidden h-screen lg:block">{sidebar}</div>
+        <div className="sticky top-0 hidden h-screen p-4 pr-0 lg:block">{sidebar}</div>
 
         {/* Mobile drawer — people will open this on a phone to clock in */}
         {open && (
@@ -387,13 +451,13 @@ export default function DashboardLayout({
               className="absolute inset-0 bg-slate-900/50"
               onClick={() => setOpen(false)}
             />
-            <div className="absolute left-0 top-0 h-full animate-in">{sidebar}</div>
+            <div className="absolute left-0 top-0 h-full animate-in p-3">{sidebar}</div>
           </div>
         )}
 
         <div className="min-w-0 flex-1">
           {/* Mobile top bar */}
-          <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/85 px-4 py-3 backdrop-blur lg:hidden">
+          <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-indigo-100 bg-white/90 px-4 py-3 backdrop-blur lg:hidden">
             <button
               onClick={() => setOpen(true)}
               aria-label="Open menu"
@@ -403,11 +467,11 @@ export default function DashboardLayout({
                 <path d="M3 6h14M3 10h14M3 14h14" strokeLinecap="round" />
               </svg>
             </button>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-indigo-500 to-violet-600 text-[10px] font-bold text-white">
-              {initials(me.platform.name)}
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-[12px] font-bold text-white">
+              H
             </div>
             <p className="truncate text-sm font-semibold text-slate-900">
-              {me.platform.name}
+              Avatar HRMS <span className="font-normal text-slate-400">· {me.platform.name}</span>
             </p>
           </header>
 

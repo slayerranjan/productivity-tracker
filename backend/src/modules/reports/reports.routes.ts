@@ -8,6 +8,7 @@
 import { Router } from "express";
 import { requireAuth } from "../../middlewares/auth.js";
 import { getTeamReport, type GroupBy } from "./reports.service.js";
+import { isBadInput } from "../../lib/params.js";
 
 const router = Router();
 
@@ -20,6 +21,10 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
 };
 
 function fail(res: any, error: unknown) {
+  if (isBadInput(error)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = error instanceof Error ? error.message : "UNKNOWN";
   const mapped = MESSAGES[code];
   if (mapped) return res.status(mapped.status).json({ error: mapped.message });
@@ -44,7 +49,8 @@ router.get("/", requireAuth, async (req, res) => {
     const requested = String(req.query.groupBy ?? "person") as GroupBy;
     const groupBy = GROUP_BY_VALUES.includes(requested) ? requested : "person";
 
-    const report = await getTeamReport(req.user!.userId, from, to, groupBy);
+    const onlyUserId = req.query.userId ? String(req.query.userId) : undefined;
+    const report = await getTeamReport(req.user!.userId, from, to, groupBy, onlyUserId);
     return res.json(report);
   } catch (error) {
     return fail(res, error);

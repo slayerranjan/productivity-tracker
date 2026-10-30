@@ -23,6 +23,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { viewerIsOwner } from "../../lib/owner.js";
 import { saveUpload, readStored, deleteStored, contentTypeFor } from "../../lib/storage.js";
+import { parseIsoDay } from "../../lib/dates.js";
+import { auditNote, changedFields } from "../../lib/auditContext.js";
 
 const BCRYPT_COST = 10;
 const STAFF_ROLES = new Set(["HR", "ADMIN"]);
@@ -90,6 +92,40 @@ async function samePlatformUser(platformId: string, userId: string) {
 // Creates the standard requirement set the first time a platform needs it.
 // A write inside a read is unusual â€” it is done here so a brand-new platform
 // is never stuck with an empty checklist and no obvious way to fix it.
+// A requirement applies to everyone unless HR scoped it to certain employment types.
+// A person with no employment type set sees every requirement (the behaviour before types existed).
+// The two tables behind this are read separately (not joined) and a missing table is treated as
+// "no scopes / no types", so a database that has not been migrated yet keeps working exactly as before.
+const missingTable = (e: unknown) => (e as { code?: string })?.code === "P2021" || /does not exist/i.test(String((e as Error)?.message));
+
+export async function scopeMap(platformIds: string | string[]): Promise<Map<string, string[]>> {
+  const ids = Array.isArray(platformIds) ? platformIds : [platformIds];
+  try {
+    const rows = await prisma.documentRequirementScope.findMany({ where: { requirement: { platformId: { in: ids } } }, select: { requirementId: true, employmentType: true } });
+    const map = new Map<string, string[]>();
+    for (const r of rows) map.set(r.requirementId, [...(map.get(r.requirementId) ?? []), String(r.employmentType)]);
+    return map;
+  } catch (e) {
+    if (missingTable(e)) return new Map();
+    throw e;
+  }
+}
+
+export async function typesOf(userIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) return new Map();
+  try {
+    const rows = await prisma.employeeProfile.findMany({ where: { userId: { in: userIds } }, select: { userId: true, employmentType: true } });
+    return new Map(rows.map((r) => [r.userId, String(r.employmentType)]));
+  } catch (e) {
+    if (missingTable(e)) return new Map();
+    throw e;
+  }
+}
+
+export function isApplicable(scopes: string[] | undefined, type: string | null | undefined): boolean {
+  return !scopes || scopes.length === 0 || !type || scopes.includes(type);
+}
+
 async function ensureRequirements(platformId: string) {
   const count = await prisma.documentRequirement.count({ where: { platformId } });
   if (count > 0) return;
@@ -146,7 +182,7 @@ export async function recomputeOnboarding(userId: string) {
   // Already finished â€” nothing here can un-finish someone.
   if (String(user.onboardingStatus) === "ACTIVE") return user.onboardingStatus;
 
-  const [requirements, documents] = await Promise.all([
+  const [allRequirements, documents, types, scopeBy] = await Promise.all([
     prisma.documentRequirement.findMany({
       where: { platformId: user.platformId, isActive: true },
       select: { id: true, isMandatory: true, uploadedByEmployee: true, category: true },
@@ -155,7 +191,10 @@ export async function recomputeOnboarding(userId: string) {
       where: { userId },
       select: { requirementId: true, status: true, category: true },
     }),
+    typesOf([userId]),
+    scopeMap(user.platformId),
   ]);
+  const requirements = allRequirements.filter((r) => isApplicable(scopeBy.get(r.id), types.get(userId)));
 
   const byRequirement = new Map(documents.map((d) => [d.requirementId, d]));
 
@@ -277,12 +316,12 @@ export async function createHire(
         role: "EMPLOYEE",
         status: "CANDIDATE",
         designation: data.designation?.trim() || null,
-        dateOfJoining: data.dateOfJoining ? new Date(data.dateOfJoining) : null,
+        dateOfJoining: data.dateOfJoining ? parseIsoDay(data.dateOfJoining) : null,
         shiftId: data.shiftId || null,
         onboardingStatus: "OFFER_SENT",
         // The gate stays shut until the resume is on file.
         trackerAccessEnabled: false,
-        mustChangePassword: false,
+        mustChangePassword: true, // the joiner must replace the HR-chosen temporary password
       },
       select: { id: true, employeeCode: true, email: true, firstName: true, lastName: true },
     });
@@ -401,6 +440,7 @@ export async function listCandidates(viewerId: string) {
   // Requirements belong to a company, so they are grouped by one rather than
   // assumed to be a single list. An owner sees candidates from several
   // companies side by side, and each must be measured against their own.
+  const [scopeBy, typeBy] = await Promise.all([scopeMap([...new Set(requirements.map((r) => r.platformId))]), typesOf(candidates.map((c) => c.id))]);
   const requirementsByPlatform = new Map<string, typeof requirements>();
   for (const r of requirements) {
     const list = requirementsByPlatform.get(r.platformId) ?? [];
@@ -409,7 +449,7 @@ export async function listCandidates(viewerId: string) {
   }
 
   return candidates.map((c) => {
-    const forThisCompany = requirementsByPlatform.get(c.platformId) ?? [];
+    const forThisCompany = (requirementsByPlatform.get(c.platformId) ?? []).filter((r) => isApplicable(scopeBy.get(r.id), typeBy.get(c.id)));
     const ownRequirements = forThisCompany.filter((r) => r.uploadedByEmployee);
     const mandatory = ownRequirements.filter((r) => r.isMandatory);
     const mandatoryCount = mandatory.length;
@@ -511,7 +551,7 @@ export async function getCandidate(viewerId: string, userId: string) {
 
   await ensureRequirements(subject.platformId);
 
-  const [user, requirements, documents] = await Promise.all([
+  const [user, allRequirements, documents, types, scopeBy] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -539,7 +579,10 @@ export async function getCandidate(viewerId: string, userId: string) {
         reviewedBy: { select: { firstName: true, lastName: true } },
       },
     }),
+    typesOf([userId]),
+    scopeMap(subject.platformId),
   ]);
+  const requirements = allRequirements.filter((r) => isApplicable(scopeBy.get(r.id), types.get(userId)));
 
   const byRequirement = new Map(documents.map((d) => [d.requirementId, d]));
 
@@ -612,13 +655,16 @@ export async function getMyOnboarding(userId: string) {
 
   await ensureRequirements(user.platformId);
 
-  const [requirements, documents] = await Promise.all([
+  const [allRequirements, documents, types, scopeBy] = await Promise.all([
     prisma.documentRequirement.findMany({
       where: { platformId: user.platformId, isActive: true, uploadedByEmployee: true },
       orderBy: { sortOrder: "asc" },
     }),
     prisma.employeeDocument.findMany({ where: { userId } }),
+    typesOf([userId]),
+    scopeMap(user.platformId),
   ]);
+  const requirements = allRequirements.filter((r) => isApplicable(scopeBy.get(r.id), types.get(userId)));
 
   const byRequirement = new Map(documents.map((d) => [d.requirementId, d]));
 
@@ -673,10 +719,15 @@ export async function uploadMyDocument(
 
   const requirement = await prisma.documentRequirement.findUnique({
     where: { id: data.requirementId },
-    select: { id: true, platformId: true, category: true, uploadedByEmployee: true },
+    select: { id: true, platformId: true, category: true, uploadedByEmployee: true, isActive: true },
   });
   if (!requirement || requirement.platformId !== user.platformId) throw new Error("NOT_FOUND");
   if (!requirement.uploadedByEmployee) throw new Error("HR_UPLOADS_THIS");
+  if (!requirement.isActive) throw new Error("REQUIREMENT_INACTIVE");
+  {
+    const [types, scopeBy] = await Promise.all([typesOf([userId]), scopeMap(user.platformId)]);
+    if (!isApplicable(scopeBy.get(requirement.id), types.get(userId))) throw new Error("NOT_APPLICABLE");
+  }
 
   const stored = await saveUpload({
     platformId: user.platformId,
@@ -744,7 +795,7 @@ export async function reviewDocument(
 
   const doc = await prisma.employeeDocument.findUnique({
     where: { id: documentId },
-    select: { id: true, platformId: true, userId: true },
+    select: { id: true, platformId: true, userId: true, status: true, category: true },
   });
   if (!doc) throw new Error("NOT_FOUND");
   // An owner reviews documents in every company; everyone else stays locked
@@ -763,6 +814,15 @@ export async function reviewDocument(
       reviewedAt: new Date(),
       rejectionReason: approve ? null : rejectionReason!.trim(),
     },
+  });
+
+  auditNote({
+    recordType: "EmployeeDocument",
+    recordId: doc.id,
+    targetUserId: doc.userId,
+    before: { status: String(doc.status) },
+    after: { status: approve ? "APPROVED" : "REJECTED", rejectionReason: approve ? null : rejectionReason!.trim() },
+    summary: `${approve ? "Verified" : "Rejected"} a ${String(doc.category).toLowerCase()} document`,
   });
 
   const status = await recomputeOnboarding(doc.userId);
@@ -885,10 +945,27 @@ export async function listRequirements(viewerId: string) {
   assertStaff(String(viewer.role));
   await ensureRequirements(viewer.platformId);
 
-  return prisma.documentRequirement.findMany({
-    where: { platformId: viewer.platformId },
-    orderBy: { sortOrder: "asc" },
-  });
+  const [rows, scopeBy, grouped] = await Promise.all([
+    prisma.documentRequirement.findMany({ where: { platformId: viewer.platformId }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }] }),
+    scopeMap(viewer.platformId),
+    prisma.employeeDocument.groupBy({ by: ["requirementId", "status"], where: { platformId: viewer.platformId, requirementId: { not: null } }, _count: true }),
+  ]);
+  const counts = new Map<string, { submitted: number; verified: number; rejected: number }>();
+  for (const g of grouped) {
+    const c = counts.get(g.requirementId as string) ?? { submitted: 0, verified: 0, rejected: 0 };
+    if (String(g.status) === "SUBMITTED") c.submitted += g._count;
+    if (String(g.status) === "APPROVED") c.verified += g._count;
+    if (String(g.status) === "REJECTED") c.rejected += g._count;
+    counts.set(g.requirementId as string, c);
+  }
+  return rows.map((r) => ({ ...r, appliesTo: scopeBy.get(r.id) ?? [], ...(counts.get(r.id) ?? { submitted: 0, verified: 0, rejected: 0 }) }));
+}
+
+const EMPLOYMENT_TYPE_VALUES = ["PERMANENT", "PROBATION", "CONTRACT", "INTERN"];
+
+async function scopesAvailable(): Promise<boolean> {
+  const r = await prisma.$queryRaw<{ ok: boolean }[]>`SELECT to_regclass('public.document_requirement_scopes') IS NOT NULL AS ok`;
+  return r[0]?.ok === true;
 }
 
 export async function upsertRequirement(
@@ -902,6 +979,7 @@ export async function upsertRequirement(
     uploadedByEmployee?: boolean;
     isActive?: boolean;
     sortOrder?: number;
+    appliesTo?: string[];
   }
 ) {
   const viewer = await actor(viewerId);
@@ -909,42 +987,83 @@ export async function upsertRequirement(
 
   const category = DOCUMENT_CATEGORIES.find((c) => c === data.category);
   if (!category) throw new Error("BAD_CATEGORY");
-  if (!data.label?.trim()) throw new Error("MISSING_FIELDS");
+  const label = String(data.label ?? "").trim();
+  if (label.length < 2) throw new Error("MISSING_FIELDS");
+  if (label.length > 100) throw new Error("NAME_TOO_LONG");
+  const helpText = data.helpText === undefined || data.helpText === null ? null : String(data.helpText).trim() || null;
+  if (helpText && helpText.length > 300) throw new Error("HELP_TOO_LONG");
+  const sortOrder = data.sortOrder !== undefined && Number.isInteger(Number(data.sortOrder)) ? Math.min(999, Math.max(0, Number(data.sortOrder))) : undefined;
 
-  if (data.id) {
-    const existing = await prisma.documentRequirement.findUnique({
-      where: { id: data.id },
-      select: { platformId: true },
-    });
-    if (!existing || existing.platformId !== viewer.platformId) throw new Error("NOT_FOUND");
+  let appliesTo: string[] | undefined;
+  if (data.appliesTo !== undefined) {
+    if (!Array.isArray(data.appliesTo) || data.appliesTo.some((t) => !EMPLOYMENT_TYPE_VALUES.includes(String(t)))) throw new Error("BAD_EMPLOYMENT_TYPE");
+    appliesTo = [...new Set(data.appliesTo.map(String))];
+  }
+  const canScope = await scopesAvailable();
+  if (appliesTo && appliesTo.length > 0 && !canScope) throw new Error("SCOPE_UNAVAILABLE");
 
-    return prisma.documentRequirement.update({
-      where: { id: data.id },
-      data: {
-        category,
-        label: data.label.trim(),
-        helpText: data.helpText?.trim() || null,
-        ...(data.isMandatory !== undefined ? { isMandatory: data.isMandatory } : {}),
-        ...(data.uploadedByEmployee !== undefined
-          ? { uploadedByEmployee: data.uploadedByEmployee }
-          : {}),
-        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
-        ...(data.sortOrder !== undefined ? { sortOrder: data.sortOrder } : {}),
-      },
+  const existing = data.id
+    ? await prisma.documentRequirement.findUnique({ where: { id: data.id } })
+    : null;
+  if (data.id && (!existing || existing.platformId !== viewer.platformId)) throw new Error("NOT_FOUND");
+  const beforeScopes = existing ? ((await scopeMap(viewer.platformId)).get(existing.id) ?? []) : [];
+
+  let saved;
+  try {
+    saved = await prisma.$transaction(async (tx) => {
+      const row = existing
+        ? await tx.documentRequirement.update({
+            where: { id: existing.id },
+            data: {
+              category,
+              label,
+              helpText,
+              ...(data.isMandatory !== undefined ? { isMandatory: data.isMandatory === true } : {}),
+              ...(data.uploadedByEmployee !== undefined ? { uploadedByEmployee: data.uploadedByEmployee === true } : {}),
+              // Deactivating only hides the requirement. Submitted files are never deleted.
+              ...(data.isActive !== undefined ? { isActive: data.isActive === true } : {}),
+              ...(sortOrder !== undefined ? { sortOrder } : {}),
+            },
+          })
+        : await tx.documentRequirement.create({
+            data: {
+              platformId: viewer.platformId,
+              category,
+              label,
+              helpText,
+              isMandatory: data.isMandatory !== false,
+              uploadedByEmployee: data.uploadedByEmployee !== false,
+              sortOrder: sortOrder ?? 99,
+            },
+          });
+      if (appliesTo !== undefined && canScope) {
+        await tx.documentRequirementScope.deleteMany({ where: { requirementId: row.id } });
+        if (appliesTo.length > 0) await tx.documentRequirementScope.createMany({ data: appliesTo.map((t) => ({ requirementId: row.id, employmentType: t as never })) });
+      }
+      return row;
     });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") throw new Error("DUPLICATE_LABEL");
+    throw e;
   }
 
-  return prisma.documentRequirement.create({
-    data: {
-      platformId: viewer.platformId,
-      category,
-      label: data.label.trim(),
-      helpText: data.helpText?.trim() || null,
-      isMandatory: data.isMandatory !== false,
-      uploadedByEmployee: data.uploadedByEmployee !== false,
-      sortOrder: data.sortOrder ?? 99,
-    },
+  const KEYS = ["label", "helpText", "category", "isMandatory", "uploadedByEmployee", "isActive", "sortOrder", "appliesTo"];
+  const afterScopes = appliesTo !== undefined ? appliesTo : beforeScopes;
+  const diff = changedFields(
+    existing ? ({ ...existing, appliesTo: [...beforeScopes].sort() } as never) : ({} as never),
+    { ...saved, appliesTo: [...afterScopes].sort() } as never,
+    KEYS
+  );
+  auditNote({
+    module: "Documents",
+    action: existing ? "UPDATE" : "CREATE",
+    recordType: "DocumentRequirement",
+    recordId: saved.id,
+    before: existing ? diff.before : undefined,
+    after: diff.after,
+    summary: existing ? `Changed the document requirement "${saved.label}": ${Object.keys(diff.after as Record<string, unknown>).join(", ") || "no changes"}` : `Added the document requirement "${saved.label}"`,
   });
+  return { ...saved, appliesTo: afterScopes };
 }
 
 // ===========================================================================

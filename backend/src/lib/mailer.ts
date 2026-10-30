@@ -32,7 +32,7 @@ const PORT = Number(process.env.SMTP_PORT ?? 587);
 const USER = process.env.SMTP_USER ?? "";
 const PASS = process.env.SMTP_PASS ?? "";
 const FROM =
-  process.env.SMTP_FROM ?? (USER ? `Productivity Tracker <${USER}>` : "");
+  process.env.SMTP_FROM ?? (USER ? `Avatar HRMS <${USER}>` : "");
 
 const smtpConfigured = Boolean(HOST && USER && PASS);
 const apiConfigured = Boolean(API_KEY && FROM);
@@ -46,6 +46,19 @@ export const mailMode: "api" | "smtp" | "none" = apiConfigured
   : smtpConfigured
   ? "smtp"
   : "none";
+
+  // Printed once at startup. Four test users were created before anyone could
+// tell whether the key had even reached the server - a missing variable
+// should announce itself, not wait to be deduced from a failed send.
+console.log(
+  `[mail] mode=${mailMode}` +
+    ` brevoKey=${API_KEY ? `present(${API_KEY.length})` : "MISSING"}` +
+    ` from="${FROM}"` +
+    ` smtpHost=${HOST || "MISSING"}` +
+    ` smtpUser=${USER ? "present" : "MISSING"}` +
+    ` smtpPass=${PASS ? "present" : "MISSING"}` +
+    ` appUrl=${process.env.APP_URL || "MISSING"}`
+);
 
 // Brevo's API wants the sender as a name and an address separately, while
 // SMTP_FROM may be either "Name <addr>" or a bare address. Parsed once.

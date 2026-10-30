@@ -1,8 +1,11 @@
 import { Router, type Response } from "express";
 import * as tracker from "./tracker.service.js";
+import { getTimesheet } from "./timesheet.service.js";
 import { requireAuth, requireRole } from "../../middlewares/auth.js";
+import { guardUuidParams, isBadInput } from "../../lib/params.js";
 
 const router = Router();
+guardUuidParams(router);
 
 // Everything below requires a valid token.
 router.use(requireAuth);
@@ -35,9 +38,17 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
     message: "This invite has already been answered",
   },
   NOT_ALLOWED: { status: 403, message: "Only a manager can start a meeting" },
+  BAD_PROJECT: { status: 400, message: "That project is not one of your teams" },
+  BAD_DATE: { status: 400, message: "Dates must be in YYYY-MM-DD format." },
+  BAD_RANGE: { status: 400, message: "The end date cannot be before the start date." },
+  RANGE_TOO_LONG: { status: 400, message: "Pick a range of 93 days or fewer." },
 };
 
 function fail(res: Response, error: unknown) {
+  if (isBadInput(error)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = error instanceof Error ? error.message : "UNKNOWN";
   const known = MESSAGES[code];
 
@@ -59,7 +70,7 @@ router.get("/session", async (req, res) => {
 
 router.post("/clock-in", async (req, res) => {
   try {
-    res.json(await tracker.clockIn(req.user!.userId));
+    res.json(await tracker.clockIn(req.user!.userId, typeof req.body?.teamId === "string" ? req.body.teamId : null));
   } catch (error) {
     fail(res, error);
   }
@@ -193,6 +204,22 @@ router.get(
   }
 );
 
+
+// My timesheet: the schedule plus, per day, the real clock-in/out and every
+// break and meeting interval. Always the signed-in person's own data.
+router.get("/timesheet", async (req, res) => {
+  try {
+    res.json(
+      await getTimesheet(
+        req.user!.userId,
+        typeof req.query.from === "string" ? req.query.from : undefined,
+        typeof req.query.to === "string" ? req.query.to : undefined
+      )
+    );
+  } catch (error) {
+    fail(res, error);
+  }
+});
 
 router.get("/history", async (req, res) => {
   const { from, to } = req.query;

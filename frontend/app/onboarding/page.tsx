@@ -87,7 +87,7 @@ const STAGE_COPY: Record<string, { title: string; body: string }> = {
 };
 
 const STATUS_CHIP: Record<string, string> = {
-  REQUESTED: "bg-slate-100 text-slate-500",
+  REQUESTED: "bg-[#EEF0FD] text-slate-500",
   SUBMITTED: "bg-sky-50 text-sky-700",
   APPROVED: "bg-emerald-50 text-emerald-700",
   REJECTED: "bg-rose-50 text-rose-700",
@@ -172,7 +172,7 @@ export default function OnboardingPage() {
 
   if (!data) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <main className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <p className="text-sm text-slate-400">{error || "Loading…"}</p>
       </main>
     );
@@ -189,7 +189,7 @@ export default function OnboardingPage() {
       : 0;
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10">
+    <main className="min-h-screen bg-[var(--background)] px-4 py-10">
       <div className="mx-auto w-full max-w-2xl space-y-6">
         {/* header */}
         <div className="flex items-start justify-between gap-4">
@@ -209,7 +209,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* identity card */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
           <div className="grid gap-3 sm:grid-cols-3">
             <Detail label="Name" value={data.user.name} />
             <Detail label="Employee ID" value={data.user.employeeCode ?? "—"} />
@@ -225,7 +225,7 @@ export default function OnboardingPage() {
             </p>
             <button
               onClick={() => router.push("/dashboard")}
-              className="mt-4 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+              className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
             >
               Go to my dashboard
             </button>
@@ -233,7 +233,7 @@ export default function OnboardingPage() {
         ) : (
           <>
             {/* progress */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
               <div className="flex items-end justify-between">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                   Your documents
@@ -242,9 +242,9 @@ export default function OnboardingPage() {
                   {data.progress.done} of {data.progress.total} uploaded
                 </p>
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EEF0FD]">
                 <div
-                  className="h-full bg-slate-900 transition-all duration-500"
+                  className="h-full bg-indigo-600 transition-all duration-500"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -270,8 +270,8 @@ export default function OnboardingPage() {
             )}
 
             {/* checklist */}
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <ul className="divide-y divide-slate-100">
+            <div className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
+              <ul className="divide-y divide-indigo-50">
                 {data.checklist.map((item) => (
                   <ChecklistRow
                     key={item.requirementId}
@@ -316,7 +316,7 @@ function ChecklistRow({
               ? "bg-rose-500 text-white"
               : done
                 ? "bg-sky-500 text-white"
-                : "border border-slate-300 text-slate-300"
+                : "border border-indigo-200 text-slate-300"
         }`}
       >
         {item.status === "APPROVED" ? "✓" : item.status === "REJECTED" ? "!" : ""}
@@ -344,7 +344,7 @@ function ChecklistRow({
 
       <span
         className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${
-          STATUS_CHIP[item.status] ?? "bg-slate-100 text-slate-500"
+          STATUS_CHIP[item.status] ?? "bg-[#EEF0FD] text-slate-500"
         }`}
       >
         {STATUS_WORD[item.status] ?? item.status.toLowerCase()}
@@ -365,7 +365,7 @@ function ChecklistRow({
       <button
         onClick={() => inputRef.current?.click()}
         disabled={busy || item.status === "APPROVED"}
-        className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-40"
+        className="shrink-0 rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:opacity-40"
       >
         {busy ? "Uploading…" : item.status === "REQUESTED" ? "Upload" : "Replace"}
       </button>
@@ -416,7 +416,7 @@ function PasswordGate({ onDone, name }: { onDone: () => void; name: string }) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+    <main className="min-h-screen bg-[var(--background)] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
           Welcome, {name.split(" ")[0]}
@@ -428,7 +428,7 @@ function PasswordGate({ onDone, name }: { onDone: () => void; name: string }) {
 
         <form
           onSubmit={submit}
-          className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-white p-6"
+          className="mt-6 space-y-4 rounded-2xl bg-white shadow-[var(--shadow-card)] p-6"
         >
           <Field label="Current password">
             <input
@@ -437,7 +437,7 @@ function PasswordGate({ onDone, name }: { onDone: () => void; name: string }) {
               onChange={(e) => setCurrent(e.target.value)}
               required
               autoFocus
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
             />
           </Field>
           <Field label="New password">
@@ -447,7 +447,7 @@ function PasswordGate({ onDone, name }: { onDone: () => void; name: string }) {
               onChange={(e) => setNext(e.target.value)}
               required
               minLength={8}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
             />
           </Field>
           <Field label="Confirm new password">
@@ -457,12 +457,12 @@ function PasswordGate({ onDone, name }: { onDone: () => void; name: string }) {
               onChange={(e) => setConfirm(e.target.value)}
               required
               minLength={8}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500"
             />
           </Field>
 
           {error && (
-            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               {error}
             </p>
           )}
@@ -470,7 +470,7 @@ function PasswordGate({ onDone, name }: { onDone: () => void; name: string }) {
           <button
             type="submit"
             disabled={busy || next.length < 8}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Saving…" : "Set my password"}
           </button>

@@ -42,6 +42,10 @@ model Platform {
   workSessions       WorkSession[]
   dailyTasks         DailyTask[]
   leaveDays          LeaveDay[]
+  leaveRequests      LeaveRequest[]
+  attendanceCorrections AttendanceCorrectionRequest[]
+  meetings              Meeting[]
+  notifications         Notification[]
   alerts             Alert[]
   offerTemplates     OfferTemplate[]
   offers             Offer[]
@@ -83,6 +87,7 @@ model User {
   status UserStatus @default(CANDIDATE)
 
   designation      String?
+  monthlySalary Decimal? @db.Decimal(10, 2)
   dateOfJoining    DateTime?
   probationEndDate DateTime?
   exitDate         DateTime?
@@ -130,6 +135,15 @@ model User {
   tasksReviewed     DailyTask[]                @relation("TaskReviewer")  
   leaveDays         LeaveDay[]                 @relation("LeaveSubject")
   leaveMarkedBy     LeaveDay[]                 @relation("LeaveMarker")
+  leaveRequested    LeaveRequest[]             @relation("LeaveRequester")
+  leaveDecided      LeaveRequest[]             @relation("LeaveDecider")
+  correctionsRequested  AttendanceCorrectionRequest[] @relation("CorrectionRequester")
+  correctionsReviewed   AttendanceCorrectionRequest[] @relation("CorrectionReviewer")
+  correctionAudits      AttendanceCorrectionAudit[]   @relation("CorrectionActor")
+  notificationsReceived Notification[]                @relation("NotificationRecipient")
+  meetingsOrganized     Meeting[]                     @relation("MeetingOrganizer")
+  meetingAttendances    MeetingAttendee[]             @relation("MeetingAttendeeUser")
+  employeeProfile       EmployeeProfile?
   meetingsReviewed  TrackerMeeting[]           @relation("MeetingReviewer")
     meetingsInvited   TrackerMeeting[]           @relation("MeetingInviter")
   alerts            Alert[]
@@ -203,6 +217,7 @@ model Team {
 
   members TeamMember[]
     dailyTasks DailyTask[]
+  workSessions WorkSession[] @relation("SessionProject")
   config  TeamConfig?
 
   @@unique([platformId, name])
@@ -331,10 +346,22 @@ model AuditLog {
   // change", never enough to leak a password.
   detail Json?
 
+  // --- Structured fields (filled for every new row; older rows are classified when read) ---
+  module       String? // "Employees", "Leave", "Attendance"...
+  action       String? // CREATE, UPDATE, DELETE, APPROVE, REJECT, SUBMIT, CANCEL, LOGIN, UPLOAD, PASSWORD, PERMISSION, CLOCK, OTHER
+  recordType   String? // what was changed: "User", "LeaveRequest"...
+  recordId     String?
+  targetUserId String? @db.Uuid // the employee the change is about (no foreign key: history outlives people)
+  summary      String? // one plain-English line
+  before       Json? // original values of the fields that changed (never secrets)
+  after        Json? // new values of the fields that changed
+
   ip        String?
   createdAt DateTime @default(now())
 
   @@index([actorId, createdAt])
   @@index([platformId, createdAt])
+  @@index([platformId, module, createdAt])
+  @@index([platformId, targetUserId, createdAt])
   @@map("audit_logs")
 }

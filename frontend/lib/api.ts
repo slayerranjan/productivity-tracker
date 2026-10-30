@@ -51,6 +51,13 @@ function headers() {
   return base;
 }
 
+// Plain-English text for the codes the server sends when an account cannot be used.
+const CODE_TEXT: Record<string, string> = {
+  NOT_PART_OF_THIS_HRMS: "This account does not belong to this Avatar HRMS.",
+  COMPANY_INACTIVE: "Your company is currently switched off. Please contact your administrator.",
+};
+const said = (code: unknown) => CODE_TEXT[String(code)] ?? (typeof code === "string" ? code : "Something went wrong");
+
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
@@ -59,7 +66,19 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? "Something went wrong");
+  if (!res.ok) throw new Error(said(data.error));
+  return data as T;
+}
+
+export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify(body ?? {}),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(said(data.error));
   return data as T;
 }
 
@@ -67,6 +86,6 @@ export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { headers: headers() });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? "Something went wrong");
+  if (!res.ok) throw new Error(said(data.error));
   return data as T;
 }
