@@ -7,6 +7,7 @@ import PDFDocument from "pdfkit";
 import { prisma } from "../../lib/prisma.js";
 import { viewerIsOwner } from "../../lib/owner.js";
 import { getMonthAttendance } from "../attendance/attendance.service.js";
+import { LOGOS } from "./payroll.logos.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -110,7 +111,7 @@ export async function buildPayslipPdf(
           },
         },
       },
-      platform: { select: { name: true, timezone: true } },
+      platform: { select: { name: true, slug: true, timezone: true } },
     },
   });
   if (!slip) throw new Error("SLIP_NOT_FOUND");
@@ -188,8 +189,15 @@ export async function buildPayslipPdf(
     doc.text(text, x + 6, top + (h - size) / 2, { width: w - 12, align: opts.align ?? "left", lineBreak: false });
   }
 
-  // --- title box
+  // --- logo, above the box as on the company's own slip
+  const logo = LOGOS[slip.platform.slug];
   let y = 40;
+  if (logo) {
+    doc.image(logo, LEFT, 36, { height: 48 });
+    y = 94;
+  }
+
+  // --- title box
   const titleH = 70;
   doc.rect(LEFT, y, W, titleH).stroke();
   doc.font("Times-Bold").fontSize(15).fillColor(INK);
