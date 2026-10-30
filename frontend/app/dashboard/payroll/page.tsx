@@ -192,7 +192,7 @@ export default function PayrollPage() {
   if (me && !allowed) {
     return (
       <div className="p-8">
-        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-8 text-center text-sm text-slate-600">
           Payroll is limited to HR and administrators.
         </div>
       </div>
@@ -222,7 +222,7 @@ export default function PayrollPage() {
           <select
             value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-indigo-200 px-3 py-2 text-sm"
           >
             {MONTHS.map((m, i) => (
               <option key={m} value={i + 1}>
@@ -233,7 +233,7 @@ export default function PayrollPage() {
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-xl border border-indigo-200 px-3 py-2 text-sm"
           >
             {[0, 1, 2].map((offset) => {
               const y = now.getFullYear() - offset;
@@ -248,7 +248,7 @@ export default function PayrollPage() {
       </header>
 
       {data && (
-        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+        <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-white shadow-[var(--shadow-card)] px-5 py-4">
           <p className="text-sm text-slate-700">
             <span className="font-medium">{data.label}</span>
             <span className="ml-3 text-slate-500">
@@ -260,7 +260,7 @@ export default function PayrollPage() {
             <button
               onClick={releaseMonth}
               disabled={busyId === "month"}
-              className="ml-auto rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+              className="ml-auto rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
             >
               {busyId === "month" ? "Releasing…" : `Release ${pending} payslip${pending === 1 ? "" : "s"}`}
             </button>
@@ -279,8 +279,8 @@ export default function PayrollPage() {
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <ul className="divide-y divide-slate-100">
+      <section className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
+        <ul className="divide-y divide-indigo-50">
           {data?.rows.map((row) => (
             <PayrollRow
               key={row.userId}
@@ -323,7 +323,7 @@ function PayrollRow({
     <li className="flex flex-wrap items-center gap-3 px-5 py-3.5">
       <div
         className={`h-2 w-2 shrink-0 rounded-full ${
-          slip?.publishedAt ? "bg-emerald-500" : slip ? "bg-amber-400" : "bg-slate-200"
+          slip?.publishedAt ? "bg-emerald-500" : slip ? "bg-amber-400" : "bg-indigo-100"
         }`}
       />
 
@@ -355,7 +355,7 @@ function PayrollRow({
           <button
             onClick={onToggle}
             disabled={busy}
-            className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-900 disabled:opacity-40"
+            className="shrink-0 rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-indigo-600 disabled:opacity-40"
           >
             {slip.publishedAt ? "Unrelease" : "Release"}
           </button>
@@ -382,12 +382,12 @@ function PayrollRow({
             value={net}
             onChange={(e) => onNet(e.target.value)}
             placeholder="Net ₹ (optional)"
-            className="w-36 shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none placeholder:text-slate-400 focus:border-slate-900"
+            className="w-36 shrink-0 rounded-xl border border-indigo-200 px-3 py-1.5 text-sm outline-none placeholder:text-slate-400 focus:border-indigo-500"
           />
           <button
             onClick={() => inputRef.current?.click()}
             disabled={busy}
-            className="shrink-0 rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+            className="shrink-0 rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Uploading…" : "Upload PDF"}
           </button>

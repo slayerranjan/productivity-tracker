@@ -12,6 +12,7 @@
 // ===========================================================================
 
 import { prisma } from "./prisma.js";
+import { getPinnedCompany } from "./deployment.js";
 
 export async function viewerIsOwner(viewerId: string): Promise<boolean> {
   const codes = String(process.env.OWNER_CODES ?? "")

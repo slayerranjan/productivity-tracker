@@ -16,7 +16,7 @@ export function ProgressBar({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="relative h-1.5 w-28 overflow-hidden rounded-full bg-slate-200">
+      <div className="relative h-1.5 w-28 overflow-hidden rounded-full bg-indigo-100">
         <div
           className="absolute inset-y-0 left-0 rounded-full bg-amber-400 transition-all"
           style={{ width: `${amber}%` }}

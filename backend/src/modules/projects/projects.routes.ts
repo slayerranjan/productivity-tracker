@@ -1,14 +1,27 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middlewares/auth.js";
 import * as projects from "./projects.service.js";
+import { guardUuidParams, isBadInput } from "../../lib/params.js";
 
 const router = Router();
+guardUuidParams(router);
 
 function fail(
   res: { status: (n: number) => { json: (b: unknown) => void } },
   err: unknown
 ) {
+  if (isBadInput(err)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = err instanceof Error ? err.message : "UNKNOWN";
+  // Only short error codes (MISSING_FIELDS, NOT_FOUND...) go back to the browser. Anything else is an
+  // unexpected failure (for example database error text with file paths): log it, tell the user nothing.
+  if (!/^[A-Z][A-Z0-9_:]*$/.test(code)) {
+    console.error("[projects]", err);
+    res.status(500).json({ error: "Something went wrong" });
+    return;
+  }
   const status =
     code === "NOT_ALLOWED" || code === "NOT_YOUR_COMPANY"
       ? 403

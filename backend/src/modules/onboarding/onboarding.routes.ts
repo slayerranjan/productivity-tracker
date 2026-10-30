@@ -10,8 +10,10 @@ import { Router } from "express";
 import { requireAuth } from "../../middlewares/auth.js";
 import * as onboarding from "./onboarding.service.js";
 import { sendWelcome } from "./onboarding.mail.js";
+import { guardUuidParams, isBadInput } from "../../lib/params.js";
 
 const router = Router();
+guardUuidParams(router);
 
 router.use(requireAuth);
 
@@ -20,6 +22,7 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   FORBIDDEN: { status: 403, message: "That isn't yours to do." },
   TEAM_NOT_FOUND: { status: 404, message: "That team doesn't exist on your platform." },
   MISSING_FIELDS: { status: 400, message: "Please fill in all the required fields." },
+  BAD_DATE: { status: 400, message: "Dates must be real days in YYYY-MM-DD format." },
   EMAIL_TAKEN: { status: 409, message: "Someone on this platform already uses that email." },
   WEAK_PASSWORD: { status: 400, message: "The password must be at least 8 characters." },
   SAME_PASSWORD: { status: 400, message: "The new password must be different." },
@@ -27,6 +30,13 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   BAD_CATEGORY: { status: 400, message: "Pick a valid document category." },
   REASON_REQUIRED: { status: 400, message: "Say why you're sending it back." },
   HR_UPLOADS_THIS: { status: 400, message: "HR uploads that document, not you." },
+  DUPLICATE_LABEL: { status: 409, message: "A requirement with that name already exists." },
+  NAME_TOO_LONG: { status: 400, message: "Keep the name under 100 characters." },
+  HELP_TOO_LONG: { status: 400, message: "Keep the description under 300 characters." },
+  BAD_EMPLOYMENT_TYPE: { status: 400, message: "Employment type must be permanent, probation, contract or intern." },
+  SCOPE_UNAVAILABLE: { status: 503, message: "Limiting a requirement to employment types needs a database update that has not been applied yet." },
+  REQUIREMENT_INACTIVE: { status: 400, message: "That document is no longer being collected." },
+  NOT_APPLICABLE: { status: 400, message: "That document does not apply to you." },
   UNSUPPORTED_FILE_TYPE: {
     status: 415,
     message: "Upload a PDF, JPG, PNG, WEBP or Word file.",
@@ -38,6 +48,10 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
 };
 
 function fail(res: any, error: unknown) {
+  if (isBadInput(error)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = error instanceof Error ? error.message : "UNKNOWN";
   const mapped = MESSAGES[code];
   if (mapped) return res.status(mapped.status).json({ error: mapped.message, code });

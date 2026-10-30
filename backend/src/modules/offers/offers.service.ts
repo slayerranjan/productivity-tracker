@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { sendMail } from "../../lib/mailer.js";
 import { welcomeEmail } from "../../lib/emails.js";
+import { parseIsoDay } from "../../lib/dates.js";
 
 // ---------------------------------------------------------------------------
 // OFFER LETTERS
@@ -62,7 +63,7 @@ const DEFAULT_BODY = `<p>Dear {{firstName}},</p>
 <p>We are pleased to offer you the position of <strong>{{roleTitle}}</strong> at {{company}}.</p>
 <p>Your joining date is <strong>{{joiningDate}}</strong>. You will report to {{reportingTo}}.</p>
 <p>Your annual compensation will be {{ctc}}.</p>
-<p>Please sign in to the Productivity Tracker to accept this offer and upload the documents listed. Your employee ID is {{employeeCode}}.</p>
+<p>Please sign in to Avatar HRMS to accept this offer and upload the documents listed. Your employee ID is {{employeeCode}}.</p>
 <p>We look forward to working with you.</p>
 <p>Regards,<br/>{{company}}</p>`;
 
@@ -216,7 +217,7 @@ export async function createOffer(
   if (!candidateId || !roleTitle) throw new Error("MISSING_FIELDS");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(joiningStr)) throw new Error("BAD_DATE");
 
-  const joiningDate = new Date(`${joiningStr}T00:00:00Z`);
+  const joiningDate = parseIsoDay(joiningStr);
 
   const rendered = await renderFor(candidateId, {
     templateId: body.templateId ? String(body.templateId) : null,
@@ -249,7 +250,7 @@ export async function createOffer(
       renderedHtml: rendered.html,
       status: "DRAFT" as never,
       expiresAt: body.expiresAt
-        ? new Date(`${String(body.expiresAt)}T00:00:00Z`)
+        ? parseIsoDay(body.expiresAt)
         : null,
     },
   });

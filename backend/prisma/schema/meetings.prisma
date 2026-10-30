@@ -1,0 +1,52 @@
+// ---------------------------------------------------------------------------
+// MEETINGS (scheduled meetings with a link). Separate from tracker_meetings, which time
+// live work meetings and decide what counts as worked hours. Nothing here touches attendance.
+// ---------------------------------------------------------------------------
+
+model Meeting {
+  id         String   @id @default(uuid()) @db.Uuid
+  platformId String   @db.Uuid
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  organizerId String @db.Uuid
+  organizer   User   @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+
+  // Stored as exact instants (UTC); shown in the company's timezone.
+  startsAt DateTime
+  endsAt   DateTime
+
+  // A link the organizer pastes (Google Meet, Teams, Zoom or any https link). No provider integration.
+  meetingUrl String?
+  provider   String? // "Google Meet", "Microsoft Teams", "Zoom" or "Other link"
+
+  status       MeetingStatus @default(SCHEDULED)
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attendees MeetingAttendee[]
+
+  @@index([platformId, startsAt])
+  @@index([organizerId, startsAt])
+  @@map("meetings")
+}
+
+model MeetingAttendee {
+  id        String  @id @default(uuid()) @db.Uuid
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  userId String @db.Uuid
+  user   User   @relation("MeetingAttendeeUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  addedAt DateTime @default(now())
+
+  @@unique([meetingId, userId])
+  @@index([userId])
+  @@map("meeting_attendees")
+}

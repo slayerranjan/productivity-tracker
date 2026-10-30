@@ -65,7 +65,7 @@ const WEIGHTS = [
 ];
 
 const WEIGHT_CHIP: Record<string, string> = {
-  LOW: "bg-slate-100 text-slate-600",
+  LOW: "bg-[#EEF0FD] text-slate-600",
   MEDIUM: "bg-sky-50 text-sky-700",
   HIGH: "bg-amber-50 text-amber-700",
   CRITICAL: "bg-rose-50 text-rose-700",
@@ -246,7 +246,7 @@ export default function ApprovalsPage() {
   if (me && !allowed) {
     return (
       <div className="p-8">
-        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-8 text-center text-sm text-slate-600">
           Approvals are for managers.
         </div>
       </div>
@@ -271,7 +271,7 @@ export default function ApprovalsPage() {
 
       {/* --- assign ------------------------------------------------------- */}
       {/* --- who, what state, when --------------------------------------- */}
-      <section className="rounded-2xl rounded-b-none border border-b-0 border-slate-200 bg-white">
+      <section className="rounded-2xl rounded-b-none border border-b-0 border-indigo-100 bg-white">
         {/* people */}
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
           {[{ who: "", count: everything.length }, ...peopleCounts.map(([who, count]) => ({ who, count }))].map(
@@ -291,7 +291,7 @@ export default function ApprovalsPage() {
                   className={`flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3.5 text-sm transition ${
                     active
                       ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      : "border-indigo-100 bg-white text-slate-700 hover:bg-indigo-50/60"
                   }`}
                 >
                   <span
@@ -312,7 +312,7 @@ export default function ApprovalsPage() {
         </div>
 
         {/* state + when */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-indigo-50 px-4">
           <div className="flex flex-wrap items-center gap-6">
             {[
               { key: "waiting", label: "Needs approval", n: allProposals.length },
@@ -334,7 +334,7 @@ export default function ApprovalsPage() {
                   className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
                     tab === o.key
                       ? "bg-indigo-100 text-indigo-700"
-                      : "bg-slate-100 text-slate-500"
+                      : "bg-[#EEF0FD] text-slate-500"
                   }`}
                 >
                   {o.n}
@@ -347,7 +347,7 @@ export default function ApprovalsPage() {
             <select
               value={preset}
               onChange={(e) => setPreset(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
+              className="rounded-xl border border-indigo-100 bg-white px-3 py-1.5 text-sm text-slate-700"
             >
               <option value="default">Today</option>
               <option value="yesterday">Yesterday</option>
@@ -358,19 +358,19 @@ export default function ApprovalsPage() {
         </div>
 
         {preset === "custom" && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-t border-indigo-50 px-4 py-3">
             <input
               type="date"
               value={customFrom}
               onChange={(e) => setCustomFrom(e.target.value)}
-              className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              className="rounded-xl border border-indigo-100 px-2 py-1 text-xs"
             />
             <span className="text-xs text-slate-400">to</span>
             <input
               type="date"
               value={customTo}
               onChange={(e) => setCustomTo(e.target.value)}
-              className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              className="rounded-xl border border-indigo-100 px-2 py-1 text-xs"
             />
           </div>
         )}
@@ -379,14 +379,14 @@ export default function ApprovalsPage() {
       {/* --- who and when ------------------------------------------------ */}
       {/* --- proposals ---------------------------------------------------- */}
       {tab === "waiting" && (
-      <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-5 py-3.5">
+      <section className="overflow-hidden rounded-2xl rounded-t-none bg-white shadow-[var(--shadow-card)]">
+        <div className="border-b border-indigo-50 px-5 py-3.5">
           <p className="mt-0.5 text-xs text-slate-400">
             Until you approve these, they don't count for anyone.
           </p>
         </div>
 
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-indigo-50">
           {queue?.proposals.length === 0 && (
             <li className="px-5 py-8 text-center text-sm text-slate-400">
               Nothing waiting.
@@ -425,7 +425,7 @@ export default function ApprovalsPage() {
                         })
                       )
                     }
-                    className="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                    className="rounded-xl bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
                   >
                     Approve
                   </button>
@@ -435,7 +435,7 @@ export default function ApprovalsPage() {
                       setRejecting(rejecting === t.id ? null : t.id);
                       setReason("");
                     }}
-                    className="rounded-lg border border-slate-300 px-4 py-1.5 text-xs font-medium text-slate-600 transition hover:border-rose-300 hover:text-rose-700 disabled:opacity-40"
+                    className="rounded-xl border border-indigo-200 px-4 py-1.5 text-xs font-medium text-slate-600 transition hover:border-rose-300 hover:text-rose-700 disabled:opacity-40"
                   >
                     Send back
                   </button>
@@ -449,7 +449,7 @@ export default function ApprovalsPage() {
                     onChange={(e) => setReason(e.target.value)}
                     autoFocus
                     placeholder="Why are you sending it back? They'll see this."
-                    className="min-w-56 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+                    className="min-w-56 flex-1 rounded-xl border border-indigo-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
                   />
                   <button
                     disabled={busy || !reason.trim()}
@@ -465,7 +465,7 @@ export default function ApprovalsPage() {
                         return next;
                       })
                     }
-                    className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-40"
+                    className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-40"
                   >
                     Send back
                   </button>
@@ -480,14 +480,14 @@ export default function ApprovalsPage() {
       {/* --- to grade ------------------------------------------------------ */}
       {/* --- work already approved -------------------------------------- */}
       {["todo", "inProgress"].includes(tab) && (
-      <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-5 py-3.5">
+      <section className="overflow-hidden rounded-2xl rounded-t-none bg-white shadow-[var(--shadow-card)]">
+        <div className="border-b border-indigo-50 px-5 py-3.5">
           <p className="mt-0.5 text-xs text-slate-400">
             What you have already approved, and where it has got to.
           </p>
         </div>
 
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-indigo-50">
           {bucket(tab)
             .filter((t) => !person || nameOf(t) === person)
             .map((t) => (
@@ -497,7 +497,7 @@ export default function ApprovalsPage() {
                   <p className="mt-0.5 text-xs text-slate-500">{personLabel(t)}</p>
                 </div>
                 {t.outcome && (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  <span className="rounded-full bg-[#EEF0FD] px-2 py-0.5 text-[11px] font-medium text-slate-600">
                     {String(t.outcome).toLowerCase().replace("_", " ")}
                   </span>
                 )}
@@ -514,14 +514,14 @@ export default function ApprovalsPage() {
       )}
 
       {tab === "completed" && (
-      <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-5 py-3.5">
+      <section className="overflow-hidden rounded-2xl rounded-t-none bg-white shadow-[var(--shadow-card)]">
+        <div className="border-b border-indigo-50 px-5 py-3.5">
           <p className="mt-0.5 text-xs text-slate-400">
             Until you grade these they score full marks.
           </p>
         </div>
 
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-indigo-50">
           {queue?.toReview.length === 0 && (
             <li className="px-5 py-8 text-center text-sm text-slate-400">
               Nothing to grade.
@@ -560,7 +560,7 @@ export default function ApprovalsPage() {
                         })
                       )
                     }
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 ${o.cls}`}
+                    className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 ${o.cls}`}
                   >
                     {o.label}
                   </button>
@@ -574,11 +574,11 @@ export default function ApprovalsPage() {
 
       {/* --- recent -------------------------------------------------------- */}
       {queue && queue.recent.length > 0 && (
-        <section className="overflow-hidden rounded-2xl rounded-t-none border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-5 py-3.5">
+        <section className="overflow-hidden rounded-2xl rounded-t-none bg-white shadow-[var(--shadow-card)]">
+          <div className="border-b border-indigo-50 px-5 py-3.5">
             <h2 className="text-sm font-medium text-slate-900">Recently graded</h2>
           </div>
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-indigo-50">
             {queue.recent.map((t) => {
               const grade = t.outcome ? OUTCOME_CHIP[t.outcome] : null;
               return (

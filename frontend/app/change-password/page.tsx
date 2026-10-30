@@ -60,10 +60,10 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <main className="flex min-h-screen items-center justify-center bg-[#F6F7FE] px-4">
       <div className="w-full max-w-sm">
         <div className="mb-7">
-          <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900">
+          <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="h-5 w-5">
               <rect x="4" y="10" width="16" height="10" rx="2" />
               <path d="M8 10V7a4 4 0 0 1 8 0v3" strokeLinecap="round" />
@@ -80,7 +80,7 @@ export default function ChangePasswordPage() {
 
         <form
           onSubmit={submit}
-          className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          className="space-y-4 rounded-2xl bg-white p-6 shadow-[var(--shadow-card)]"
         >
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -93,7 +93,7 @@ export default function ChangePasswordPage() {
               required
               autoFocus
               autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -107,7 +107,7 @@ export default function ChangePasswordPage() {
               onChange={(e) => setNext(e.target.value)}
               required
               autoComplete="new-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-500"
             />
             <p className="mt-1.5 text-xs text-slate-400">At least 8 characters.</p>
           </div>
@@ -122,12 +122,12 @@ export default function ChangePasswordPage() {
               onChange={(e) => setConfirm(e.target.value)}
               required
               autoComplete="new-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-500"
             />
           </div>
 
           {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
               {error}
             </div>
           )}
@@ -135,7 +135,7 @@ export default function ChangePasswordPage() {
           <button
             type="submit"
             disabled={busy || !current || !next || !confirm}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Saving..." : "Set password and continue"}
           </button>

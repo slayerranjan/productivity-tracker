@@ -197,14 +197,14 @@ export default function OffersPage() {
         </p>
       </header>
 
-      <div className="mb-6 flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
+      <div className="mb-6 flex gap-1 rounded-xl border border-indigo-100 bg-white p-1">
         {(["send", "template"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`rounded-md px-4 py-1.5 text-sm font-medium ${
               tab === t
-                ? "bg-slate-900 text-white"
+                ? "bg-indigo-600 text-white"
                 : "text-slate-500 hover:text-slate-900"
             }`}
           >
@@ -214,19 +214,19 @@ export default function OffersPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
           {error}
         </div>
       )}
       {notice && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           {notice}
         </div>
       )}
 
       {tab === "send" && (
         <>
-          <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5">
+          <section className="mb-6 rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
             <h2 className="mb-4 text-sm font-medium text-slate-900">
               Who is it for?
             </h2>
@@ -248,7 +248,7 @@ export default function OffersPage() {
                     onChange={(e) =>
                       setForm({ ...form, candidateId: e.target.value })
                     }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                    className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
                   >
                     <option value="">Choose…</option>
                     {candidates.map((c) => (
@@ -269,7 +269,7 @@ export default function OffersPage() {
                       setForm({ ...form, roleTitle: e.target.value })
                     }
                     placeholder="Graphic Designer"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+                    className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
 
@@ -283,7 +283,7 @@ export default function OffersPage() {
                     onChange={(e) =>
                       setForm({ ...form, joiningDate: e.target.value })
                     }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                    className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
                   />
                 </div>
 
@@ -298,7 +298,7 @@ export default function OffersPage() {
                     }
                     placeholder="480000"
                     inputMode="numeric"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+                    className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
 
@@ -312,7 +312,7 @@ export default function OffersPage() {
                       setForm({ ...form, reportingTo: e.target.value })
                     }
                     placeholder="Roshan Sharma"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+                    className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
 
@@ -320,7 +320,7 @@ export default function OffersPage() {
                   <button
                     disabled={busy || !canCreate}
                     onClick={createOffer}
-                    className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+                    className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
                   >
                     {busy ? "Working…" : "Prepare the letter"}
                   </button>
@@ -330,8 +330,8 @@ export default function OffersPage() {
           </section>
 
           {preview && (
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
+            <section className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-50 px-5 py-3.5">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-900">
                     {preview.candidate.firstName} {preview.candidate.lastName}
@@ -348,7 +348,7 @@ export default function OffersPage() {
                         ? "bg-emerald-50 text-emerald-700"
                         : preview.status === "SENT"
                         ? "bg-sky-50 text-sky-700"
-                        : "bg-slate-100 text-slate-600"
+                        : "bg-[#EEF0FD] text-slate-600"
                     }`}
                   >
                     {preview.status.toLowerCase()}
@@ -357,7 +357,7 @@ export default function OffersPage() {
                     <button
                       disabled={busy}
                       onClick={send}
-                      className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+                      className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
                     >
                       Send it
                     </button>
@@ -371,7 +371,7 @@ export default function OffersPage() {
               />
 
               {preview.status === "DRAFT" && (
-                <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
+                <p className="border-t border-indigo-50 px-5 py-3 text-xs text-slate-400">
                   Sending issues them a fresh temporary password and emails it
                   with this letter. Read it first — once sent, this copy is
                   fixed.
@@ -383,7 +383,7 @@ export default function OffersPage() {
       )}
 
       {tab === "template" && editing && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <section className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-medium text-slate-900">
               {editing.name}{" "}
@@ -394,13 +394,13 @@ export default function OffersPage() {
             <button
               disabled={busy}
               onClick={saveTemplate}
-              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
             >
               Save
             </button>
           </div>
 
-          <div className="mb-4 rounded-lg bg-slate-50 px-4 py-3">
+          <div className="mb-4 rounded-xl bg-[#F6F7FE] px-4 py-3">
             <p className="mb-2 text-xs font-medium text-slate-700">
               Drop any of these into the letter and they fill themselves in:
             </p>
@@ -426,7 +426,7 @@ export default function OffersPage() {
                 onChange={(e) =>
                   setEditing({ ...editing, subject: e.target.value })
                 }
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
               />
             </div>
 
@@ -439,7 +439,7 @@ export default function OffersPage() {
                 onChange={(e) =>
                   setEditing({ ...editing, emailIntro: e.target.value })
                 }
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+                className="w-full rounded-xl border border-indigo-100 px-3 py-2 text-sm text-slate-900"
               />
             </div>
 
@@ -454,7 +454,7 @@ export default function OffersPage() {
                 }
                 rows={14}
                 spellCheck={false}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs leading-relaxed text-slate-900"
+                className="w-full rounded-xl border border-indigo-100 px-3 py-2 font-mono text-xs leading-relaxed text-slate-900"
               />
             </div>
           </div>

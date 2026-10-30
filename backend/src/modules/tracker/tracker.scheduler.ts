@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 import { closeStaleBreaks, closeStaleMeetings } from "./tracker.service.js";
 import { localMinutes, recompute } from "./tracker.service.js";
 import { platformToday } from "../../lib/dates.js";
@@ -45,7 +46,8 @@ async function raise(
 // report that includes that day is wrong.
 // ---------------------------------------------------------------------------
 export async function closeStaleSessions() {
-  const platforms = await prisma.platform.findMany({ where: { isActive: true } });
+  const pinned = await getPinnedCompany();
+  const platforms = await prisma.platform.findMany({ where: { isActive: true, ...(pinned ? { id: pinned.id } : {}) } });
   let closed = 0;
 
   for (const platform of platforms) {
@@ -142,7 +144,8 @@ export async function closeStaleSessions() {
 // Alerts. Every threshold comes from TeamConfig — nothing hardcoded.
 // ---------------------------------------------------------------------------
 export async function generateAlerts() {
-  const platforms = await prisma.platform.findMany({ where: { isActive: true } });
+  const pinned = await getPinnedCompany();
+  const platforms = await prisma.platform.findMany({ where: { isActive: true, ...(pinned ? { id: pinned.id } : {}) } });
   let raised = 0;
 
   for (const platform of platforms) {
@@ -199,7 +202,9 @@ export async function generateAlerts() {
         raised++;
       }
 
-      const onSite = s.productiveSeconds + s.breakSeconds + s.meetingSeconds;
+      // Meetings are already inside productiveSeconds; adding them again would
+      // fire OVERTIME early for anyone who attended a meeting.
+      const onSite = s.productiveSeconds + s.breakSeconds;
       if (onSite > overtimeAfter) {
         const over = Math.round((onSite - dailySeconds) / 60);
         await raise(

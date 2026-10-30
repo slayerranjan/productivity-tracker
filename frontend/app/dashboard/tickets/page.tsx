@@ -101,7 +101,7 @@ const STATUS_CHIP: Record<string, string> = {
   OPEN: "bg-sky-50 text-sky-700 ring-sky-200",
   IN_PROGRESS: "bg-amber-50 text-amber-700 ring-amber-200",
   RESOLVED: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  CLOSED: "bg-slate-100 text-slate-600 ring-slate-200",
+  CLOSED: "bg-[#EEF0FD] text-slate-600 ring-slate-200",
   REJECTED: "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
@@ -191,14 +191,14 @@ export default function TicketsPage() {
         </div>
         <button
           onClick={() => setRaising(true)}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+          className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
         >
           + Raise a ticket
         </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+        <div className="inline-flex rounded-xl border border-indigo-100 bg-[#F6F7FE] p-0.5">
           {TABS.map((t) => (
             <button
               key={t.key}
@@ -214,7 +214,7 @@ export default function TicketsPage() {
             >
               {t.label}
               {t.badge ? (
-                <span className="ml-2 rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                <span className="ml-2 rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   {t.badge}
                 </span>
               ) : null}
@@ -244,15 +244,15 @@ export default function TicketsPage() {
               onClick={() => setOpenId(t.id)}
               className={`w-full rounded-xl border p-4 text-left transition ${
                 openId === t.id
-                  ? "border-slate-900 bg-white shadow-sm"
-                  : "border-slate-200 bg-white hover:border-slate-300"
+                  ? "border-indigo-600 bg-white shadow-sm"
+                  : "border-indigo-100 bg-white hover:border-indigo-200"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs text-slate-400">{t.reference}</span>
                 <span
                   className={`rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ${
-                    STATUS_CHIP[t.status] ?? "bg-slate-50 text-slate-600 ring-slate-200"
+                    STATUS_CHIP[t.status] ?? "bg-[#F6F7FE] text-slate-600 ring-slate-200"
                   }`}
                 >
                   {t.status.toLowerCase().replace(/_/g, " ")}
@@ -284,12 +284,12 @@ export default function TicketsPage() {
           ))}
 
           {!loading && rows.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
+            <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-4 py-10 text-center text-sm text-slate-400">
               Nothing here.
             </div>
           )}
           {loading && (
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-400">
+            <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-4 py-10 text-center text-sm text-slate-400">
               Loading…
             </div>
           )}
@@ -304,7 +304,7 @@ export default function TicketsPage() {
               onError={setError}
             />
           ) : (
-            <div className="rounded-xl border border-dashed border-slate-300 px-6 py-20 text-center text-sm text-slate-400">
+            <div className="rounded-xl border border-dashed border-indigo-200 px-6 py-20 text-center text-sm text-slate-400">
               Pick a ticket to open the conversation.
             </div>
           )}
@@ -406,7 +406,7 @@ function TicketThread({
 
   if (!ticket) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white px-6 py-20 text-center text-sm text-slate-400">
+      <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-6 py-20 text-center text-sm text-slate-400">
         Loading…
       </div>
     );
@@ -417,7 +417,7 @@ function TicketThread({
   return (
     <div className="space-y-4">
       {/* header */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="font-mono text-xs text-slate-400">{ticket.reference}</p>
@@ -433,7 +433,7 @@ function TicketThread({
           </div>
           <span
             className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
-              STATUS_CHIP[ticket.status] ?? "bg-slate-50 text-slate-600 ring-slate-200"
+              STATUS_CHIP[ticket.status] ?? "bg-[#F6F7FE] text-slate-600 ring-slate-200"
             }`}
           >
             {ticket.status.toLowerCase().replace(/_/g, " ")}
@@ -476,14 +476,14 @@ function TicketThread({
               <button
                 onClick={approveCorrection}
                 disabled={busy}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
               >
                 Approve and apply
               </button>
               <button
                 onClick={() => setStatus("REJECTED")}
                 disabled={busy}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:border-slate-400 disabled:opacity-40"
+                className="rounded-xl border border-indigo-200 px-4 py-2 text-sm font-medium text-slate-600 hover:border-slate-400 disabled:opacity-40"
               >
                 Reject
               </button>
@@ -497,8 +497,8 @@ function TicketThread({
       )}
 
       {/* thread */}
-      <div className="rounded-xl border border-slate-200 bg-white">
-        <ul className="divide-y divide-slate-100">
+      <div className="rounded-2xl bg-white shadow-[var(--shadow-card)]">
+        <ul className="divide-y divide-indigo-50">
           {ticket.messages.map((m) => (
             <li
               key={m.id}
@@ -524,13 +524,13 @@ function TicketThread({
         </ul>
 
         {ticket.permissions.canReply && (
-          <div className="border-t border-slate-200 p-4">
+          <div className="border-t border-indigo-100 p-4">
             <textarea
               value={reply}
               onChange={(e) => setReply(e.target.value)}
               rows={3}
               placeholder="Write a reply…"
-              className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+              className="w-full resize-none rounded-xl border border-indigo-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
             />
             <div className="mt-2 flex flex-wrap items-center gap-3">
               {ticket.permissions.canAddInternalNote && (
@@ -539,7 +539,7 @@ function TicketThread({
                     type="checkbox"
                     checked={internal}
                     onChange={(e) => setInternal(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-slate-300"
+                    className="h-3.5 w-3.5 rounded border-indigo-200"
                   />
                   Internal note
                 </label>
@@ -548,7 +548,7 @@ function TicketThread({
               <button
                 onClick={send}
                 disabled={busy || !reply.trim()}
-                className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+                className="ml-auto rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
               >
                 {busy ? "Sending…" : "Reply"}
               </button>
@@ -565,7 +565,7 @@ function TicketThread({
               key={s}
               onClick={() => setStatus(s)}
               disabled={busy || ticket.status === s}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 disabled:opacity-30"
+              className="rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 disabled:opacity-30"
             >
               Mark {s.toLowerCase().replace(/_/g, " ")}
             </button>
@@ -626,8 +626,8 @@ function RaiseDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-slate-900/20" onClick={onClose} />
-      <div className="relative h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+      <div className="relative h-full w-full max-w-md overflow-y-auto border-l border-indigo-100 bg-white shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-indigo-100 bg-white px-6 py-4">
           <h2 className="font-medium text-slate-900">Raise a ticket</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-900">
             ✕
@@ -642,7 +642,7 @@ function RaiseDrawer({
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm"
             >
               {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
                 <option key={k} value={k}>
@@ -662,7 +662,7 @@ function RaiseDrawer({
           </div>
 
           {isCorrection && (
-            <div className="space-y-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3">
+            <div className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/50 p-3">
               <div>
                 <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
                   Date to correct
@@ -672,7 +672,7 @@ function RaiseDrawer({
                   value={correctionDate}
                   max={todayIso()}
                   onChange={(e) => setCorrectionDate(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -684,7 +684,7 @@ function RaiseDrawer({
                     type="datetime-local"
                     value={loginAt}
                     onChange={(e) => setLoginAt(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                    className="w-full rounded-xl border border-indigo-200 px-2 py-2 text-sm"
                   />
                 </div>
                 <div>
@@ -695,7 +695,7 @@ function RaiseDrawer({
                     type="datetime-local"
                     value={logoutAt}
                     onChange={(e) => setLogoutAt(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-2 py-2 text-sm"
+                    className="w-full rounded-xl border border-indigo-200 px-2 py-2 text-sm"
                   />
                 </div>
               </div>
@@ -713,7 +713,7 @@ function RaiseDrawer({
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="One line"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -726,7 +726,7 @@ function RaiseDrawer({
               onChange={(e) => setDescription(e.target.value)}
               rows={5}
               placeholder="What happened, and what you need"
-              className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+              className="w-full resize-none rounded-xl border border-indigo-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -737,7 +737,7 @@ function RaiseDrawer({
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm"
             >
               {["LOW", "NORMAL", "HIGH", "URGENT"].map((p) => (
                 <option key={p} value={p}>
@@ -750,7 +750,7 @@ function RaiseDrawer({
           <button
             onClick={submit}
             disabled={busy || !subject.trim() || !description.trim()}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Raising…" : "Raise ticket"}
           </button>

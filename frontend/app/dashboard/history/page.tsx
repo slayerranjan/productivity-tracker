@@ -134,19 +134,19 @@ export default function HistoryPage() {
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+            className="rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900"
           />
           <span className="text-slate-400 text-sm">to</span>
           <input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+            className="rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900"
           />
           <button
             onClick={exportCsv}
             disabled={!data || data.rows.length === 0}
-            className="rounded-lg border border-slate-300 text-slate-700 text-sm font-medium px-4 py-2 hover:bg-slate-50 disabled:opacity-40"
+            className="rounded-xl border border-indigo-200 text-slate-700 text-sm font-medium px-4 py-2 hover:bg-indigo-50/60 disabled:opacity-40"
           >
             Export CSV
           </button>
@@ -154,7 +154,7 @@ export default function HistoryPage() {
       </header>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
+        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-4 py-2.5 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -176,7 +176,7 @@ export default function HistoryPage() {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-4 py-3"
               >
                 <p className="text-xs text-slate-500">{label}</p>
                 <p className="text-2xl font-semibold text-slate-900 mt-1 tabular-nums">
@@ -186,10 +186,10 @@ export default function HistoryPage() {
             ))}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto">
+          <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] overflow-x-auto">
             <table className="w-full text-sm min-w-[720px]">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/60">
+                <tr className="border-b border-indigo-50 bg-slate-50/60">
                   <th className="text-left px-5 py-3 font-medium text-slate-500">
                     Date
                   </th>
@@ -210,13 +210,13 @@ export default function HistoryPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-indigo-50">
                 {data.rows.map((r) => {
                   const hitTarget = r.productiveSeconds >= data.target;
                   const overBreak = r.breakSeconds > data.breakBudget;
 
                   return (
-                    <tr key={r.date} className="hover:bg-slate-50/60">
+                    <tr key={r.date} className="hover:bg-indigo-50/60/60">
                       <td className="px-5 py-3">
                         <p className="text-slate-900 font-medium">
                           {new Date(`${r.date}T00:00:00Z`).toLocaleDateString(

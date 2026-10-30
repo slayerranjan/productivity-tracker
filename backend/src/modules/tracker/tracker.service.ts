@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
-import { platformToday } from "../../lib/dates.js";
+import { onlyPinnedCompany } from "../../lib/deployment.js";
+import { parseIsoDay, platformToday } from "../../lib/dates.js";
 
 const DEFAULTS = {
   dailyWorkHours: 9,
@@ -7,6 +8,19 @@ const DEFAULTS = {
   breakBudgetMinutes: 60,
   lateLoginGraceMinutes: 15,
 };
+
+// Late = minutes past (shift start + grace). ONE formula, used by clock-in and by approved corrections.
+export function computeLate(
+  at: Date,
+  shiftStartTime: string | null,
+  graceMinutes: number,
+  timezone: string
+): { wasLateLogin: boolean; lateByMinutes: number } {
+  if (!shiftStartTime) return { wasLateLogin: false, lateByMinutes: 0 };
+  const [h, m] = shiftStartTime.split(":").map(Number);
+  const late = localMinutes(at, timezone) - (h * 60 + m) - graceMinutes;
+  return late > 0 ? { wasLateLogin: true, lateByMinutes: late } : { wasLateLogin: false, lateByMinutes: 0 };
+}
 
 export function localMinutes(date: Date, timezone: string): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -22,7 +36,7 @@ export function localMinutes(date: Date, timezone: string): number {
 
 // Everything the engine needs about one person: platform timezone, the
 // team's targets, and the shift their day is measured against.
-async function getContext(userId: string) {
+export async function getContext(userId: string, opts: { ignoreLock?: boolean } = {}) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -36,7 +50,7 @@ async function getContext(userId: string) {
   });
 
   if (!user) throw new Error("USER_NOT_FOUND");
-  if (!user.trackerAccessEnabled) throw new Error("TRACKER_LOCKED");
+  if (!user.trackerAccessEnabled && !opts.ignoreLock) throw new Error("TRACKER_LOCKED");
 
   const team = user.teamMemberships[0]?.team ?? null;
   const config = team?.config ?? null;
@@ -63,8 +77,11 @@ async function getContext(userId: string) {
 // session. Called after every state change. Reports read these columns and
 // never recalculate — which is why this must never be skipped.
 // ---------------------------------------------------------------------------
-export async function recompute(sessionId: string) {
-  const session = await prisma.workSession.findUnique({
+// Anything that can run workSession queries: the shared client or a transaction.
+export type SessionDb = Pick<typeof prisma, "workSession">;
+
+export async function recompute(sessionId: string, db: SessionDb = prisma) {
+  const session = await db.workSession.findUnique({
     where: { id: sessionId },
     include: { breaks: true, meetings: true },
   });
@@ -97,9 +114,12 @@ export async function recompute(sessionId: string) {
     );
   }
 
-  const productiveSeconds = Math.max(0, elapsed - breakSeconds - meetingSeconds);
+  // An APPROVED meeting is working time, so it stays inside productive time.
+  // meetingSeconds is a separate view of how much of it was meetings. Only
+  // breaks come out of the day.
+  const productiveSeconds = Math.max(0, elapsed - breakSeconds);
 
-  return prisma.workSession.update({
+  return db.workSession.update({
     where: { id: sessionId },
     data: { breakSeconds, meetingSeconds, productiveSeconds },
     include: { breaks: true, meetings: true },
@@ -129,14 +149,22 @@ export async function getActiveSession(userId: string) {
     include: { breaks: true, meetings: true },
   });
 
-  if (!session) return { session: null, config: ctx.config, hostsOpenMeeting };
+  const projects = ctx.user.teamMemberships.map((m) => ({ id: m.team.id, name: m.team.name }));
+  if (!session) return { session: null, config: ctx.config, hostsOpenMeeting, projects };
 
   const fresh = await recompute(session.id);
-  return { session: fresh, config: ctx.config, hostsOpenMeeting };
+  return { session: fresh, config: ctx.config, hostsOpenMeeting, projects };
 }
 
-export async function clockIn(userId: string) {
+export async function clockIn(userId: string, teamId?: string | null) {
   const ctx = await getContext(userId);
+
+  // The project is optional, but if given it must be one of THIS person's own teams.
+  let projectId: string | null = null;
+  if (teamId) {
+    if (!ctx.user.teamMemberships.some((m) => m.teamId === teamId)) throw new Error("BAD_PROJECT");
+    projectId = teamId;
+  }
   const date = platformToday(ctx.timezone);
   const now = new Date();
 
@@ -176,27 +204,15 @@ export async function clockIn(userId: string) {
 
     await prisma.workSession.update({
       where: { id: existing.id },
-      data: { status: "ACTIVE", logoutAt: null },
+      data: { status: "ACTIVE", logoutAt: null, ...(projectId && !existing.teamId ? { teamId: projectId } : {}) },
     });
 
     return recompute(existing.id);
   }
 
   // Late login is measured against THIS PERSON'S shift, never a global time.
-  let wasLateLogin = false;
-  let lateByMinutes = 0;
   const shiftStartTime = ctx.shift?.startTime ?? null;
-
-  if (shiftStartTime) {
-    const [h, m] = shiftStartTime.split(":").map(Number);
-    const shiftStart = h * 60 + m;
-    const actual = localMinutes(now, ctx.timezone);
-    const late = actual - shiftStart - ctx.config.lateLoginGraceMinutes;
-    if (late > 0) {
-      wasLateLogin = true;
-      lateByMinutes = late;
-    }
-  }
+  const { wasLateLogin, lateByMinutes } = computeLate(now, shiftStartTime, ctx.config.lateLoginGraceMinutes, ctx.timezone);
 
   const created = await prisma.workSession.create({
     data: {
@@ -208,6 +224,7 @@ export async function clockIn(userId: string) {
       shiftStartTime,
       wasLateLogin,
       lateByMinutes,
+      teamId: projectId,
     },
   });
 
@@ -347,7 +364,23 @@ export async function inviteToMeeting(
   const invited: string[] = [];
   const skipped: { userId: string; reason: string }[] = [];
 
+  // Tenant guard: platformId comes from the manager's own record, never from
+  // the request. One lookup for everyone, then a set check — no N+1.
+  const sameCompany = new Set(
+    (
+      await prisma.user.findMany({
+        where: { id: { in: employeeIds.map(String) }, platformId: manager.platformId },
+        select: { id: true },
+      })
+    ).map((u) => u.id)
+  );
+
   for (const employeeId of employeeIds) {
+    if (!sameCompany.has(String(employeeId))) {
+      skipped.push({ userId: employeeId, reason: "Not in your company" });
+      continue;
+    }
+
     const ctx = await getContext(employeeId).catch(() => null);
     if (!ctx) {
       skipped.push({ userId: employeeId, reason: "No tracker access" });
@@ -639,7 +672,7 @@ export async function endMeeting(userId: string) {
 // Shared by Live Team and the alerts panel so the two can never disagree
 // about who is on screen.
 // ---------------------------------------------------------------------------
-async function visibleUserIds(viewer: {
+export async function visibleUserIds(viewer: {
   id: string;
   role: string;
   platformId: string;
@@ -666,11 +699,13 @@ async function visibleUserIds(viewer: {
     }),
   ]);
 
-  return Array.from(
-    new Set([
-      ...managedTeams.flatMap((t) => t.members.map((m) => m.userId)),
-      ...reports.map((r) => r.id),
-    ])
+  return onlyPinnedCompany(
+    Array.from(
+      new Set([
+        ...managedTeams.flatMap((t) => t.members.map((m) => m.userId)),
+        ...reports.map((r) => r.id),
+      ])
+    )
   );
 }
 
@@ -758,9 +793,12 @@ export async function getTeamLiveStatus(viewerId: string) {
 
     if (s && s.status === "ACTIVE") {
       const since = Math.max(0, Math.floor((now - s.updatedAt.getTime()) / 1000));
-      if (openBreak) breakSeconds += since;
-      else if (openMeeting) meetingSeconds += since;
-      else productiveSeconds += since;
+      if (openBreak) {
+        breakSeconds += since;
+      } else {
+        productiveSeconds += since;
+        if (openMeeting) meetingSeconds += since;
+      }
     }
 
     return {
@@ -810,10 +848,9 @@ export async function getHistory(userId: string, fromStr?: string, toStr?: strin
   const ctx = await getContext(userId);
   const today = platformToday(ctx.timezone);
 
-  const to = toStr ? new Date(`${toStr}T00:00:00Z`) : today;
-  const from = fromStr
-    ? new Date(`${fromStr}T00:00:00Z`)
-    : new Date(to.getTime() - 29 * 86400000);
+  const to = toStr ? parseIsoDay(toStr) : today;
+  const from = fromStr ? parseIsoDay(fromStr) : new Date(to.getTime() - 29 * 86400000);
+  if (from.getTime() > to.getTime()) throw new Error("BAD_RANGE");
 
   const [sessions, leaveDays, tasks] = await Promise.all([
     prisma.workSession.findMany({

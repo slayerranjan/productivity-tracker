@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { todayIso } from "@/lib/time";
+import EmployeeActions from "../_employees/EmployeeActions";
 import { useMe } from "../layout";
 
 const API = API_BASE;
@@ -124,7 +125,7 @@ const DAY_LABELS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const STATUS_CHIP: Record<string, string> = {
   ACTIVE: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   INVITED: "bg-sky-50 text-sky-700 ring-sky-200",
-  CANDIDATE: "bg-slate-50 text-slate-600 ring-slate-200",
+  CANDIDATE: "bg-[#F6F7FE] text-slate-600 ring-slate-200",
   SUSPENDED: "bg-amber-50 text-amber-700 ring-amber-200",
   EXITED: "bg-rose-50 text-rose-700 ring-rose-200",
 };
@@ -133,7 +134,15 @@ const STATUS_CHIP: Record<string, string> = {
 
 export default function AdminPage() {
   const me = useMe();
-  const [tab, setTab] = useState<Tab>("People");
+  // /dashboard/admin?tab=Teams opens that tab, so the menu can link straight
+  // to it. Read once when the page first renders, rather than with
+  // useSearchParams, which would force this page behind a Suspense boundary.
+  // (The layout only renders pages after sign-in resolves, so window exists.)
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "People";
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    return TABS.find((t) => t === wanted) ?? "People";
+  });
   const [options, setOptions] = useState<Options | null>(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
@@ -162,7 +171,7 @@ export default function AdminPage() {
   if (me && !allowed) {
     return (
       <div className="p-8">
-        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-8 text-center">
           <p className="text-sm text-slate-600">
             Admin is limited to HR and administrators.
           </p>
@@ -190,7 +199,7 @@ export default function AdminPage() {
         </p>
       </div>
 
-      <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+      <div className="inline-flex rounded-xl border border-indigo-100 bg-[#F6F7FE] p-0.5">
         {TABS.map((t) => (
           <button
             key={t}
@@ -276,12 +285,12 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search name, email or code…"
-          className="w-64 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+          className="w-64 rounded-xl border border-indigo-200 px-3 py-2 text-sm outline-none focus:border-indigo-500"
         />
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          className="rounded-xl border border-indigo-200 px-3 py-2 text-sm"
         >
           <option value="">All roles</option>
           {options?.roles.map((r) => (
@@ -293,17 +302,20 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
 
         <span className="text-sm text-slate-400">{people.length} people</span>
 
-        <button
-          onClick={() => setEditing("new")}
-          className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-        >
-          + Add person
-        </button>
+        {/* Add one person (full form) or many (Excel / CSV import). Editing an
+            existing person still uses the drawer below. */}
+        <EmployeeActions
+          className="ml-auto"
+          onDone={(message) => {
+            onDone(message);
+            void load();
+          }}
+        />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <thead className="bg-[#F6F7FE] text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Code</th>
@@ -311,16 +323,14 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
               <th className="px-4 py-3">Team</th>
               <th className="px-4 py-3">Shift</th>
               <th className="px-4 py-3">Reports to</th>
-              <th className="px-4 py-3">Shift</th>
-              <th className="px-4 py-3">Reports to</th>
               <th className="px-4 py-3">Tracker</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-indigo-50">
             {people.map((p) => (
-              <tr key={p.id} className="hover:bg-slate-50/70">
+              <tr key={p.id} className="hover:bg-indigo-50/60/70">
                 <td className="px-4 py-3">
                   <div className="font-medium text-slate-900">{p.name}</div>
                   <div className="text-xs text-slate-500">{p.email}</div>
@@ -344,7 +354,7 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ${
-                      STATUS_CHIP[p.status] ?? "bg-slate-50 text-slate-600 ring-slate-200"
+                      STATUS_CHIP[p.status] ?? "bg-[#F6F7FE] text-slate-600 ring-slate-200"
                     }`}
                   >
                     {p.status.toLowerCase()}
@@ -640,20 +650,20 @@ function PersonDrawer({
         <button
           onClick={save}
           disabled={busy}
-          className="flex-1 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-40"
+          className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
         >
           {busy ? "Saving…" : isNew ? "Create person" : "Save changes"}
         </button>
         <button
           onClick={onClose}
-          className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-slate-400"
+          className="rounded-xl border border-indigo-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-slate-400"
         >
           Cancel
         </button>
       </div>
 
       {!isNew && (
-        <div className="mt-6 border-t border-slate-200 pt-5">
+        <div className="mt-6 border-t border-indigo-100 pt-5">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">
             Reset password
           </p>
@@ -666,7 +676,7 @@ function PersonDrawer({
             <button
               onClick={resetPassword}
               disabled={busy || newPassword.length < 8}
-              className="whitespace-nowrap rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-40"
+              className="whitespace-nowrap rounded-xl border border-indigo-200 px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-40"
             >
               Reset
             </button>
@@ -749,7 +759,7 @@ function TeamsTab({ options, onError, onDone }: TabProps) {
       <div className="flex justify-end">
         <button
           onClick={() => setCreating(true)}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
         >
           + New team
         </button>
@@ -757,7 +767,7 @@ function TeamsTab({ options, onError, onDone }: TabProps) {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {teams.map((t) => (
-          <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-5">
+          <div key={t.id} className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="font-medium text-slate-900">{t.name}</h3>
@@ -768,13 +778,13 @@ function TeamsTab({ options, onError, onDone }: TabProps) {
                 </p>
               </div>
               {t.manager && (
-                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                <span className="rounded-md bg-[#EEF0FD] px-2 py-0.5 text-xs text-slate-600">
                   {t.manager.name}
                 </span>
               )}
             </div>
 
-            <ul className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
+            <ul className="mt-4 divide-y divide-indigo-50 border-t border-indigo-50">
               {t.members.map((m) => (
                 <li key={m.userId} className="flex items-center justify-between py-2">
                   <span className="text-sm text-slate-700">
@@ -798,7 +808,7 @@ function TeamsTab({ options, onError, onDone }: TabProps) {
               <select
                 value={addTo[t.id] ?? ""}
                 onChange={(e) => setAddTo((s) => ({ ...s, [t.id]: e.target.value }))}
-                className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                className="flex-1 rounded-xl border border-indigo-200 px-3 py-1.5 text-sm"
               >
                 <option value="">Add someone…</option>
                 {people
@@ -812,7 +822,7 @@ function TeamsTab({ options, onError, onDone }: TabProps) {
               <button
                 onClick={() => addMember(t.id)}
                 disabled={!addTo[t.id]}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-400 disabled:opacity-40"
+                className="rounded-xl border border-indigo-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-400 disabled:opacity-40"
               >
                 Add
               </button>
@@ -858,7 +868,7 @@ function TeamsTab({ options, onError, onDone }: TabProps) {
           <button
             onClick={create}
             disabled={!name.trim()}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
             Create team
           </button>
@@ -897,15 +907,15 @@ function ShiftsTab({ onError, onDone }: TabProps) {
         </p>
         <button
           onClick={() => setEditing("new")}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
         >
           + New shift
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <thead className="bg-[#F6F7FE] text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Hours</th>
@@ -914,9 +924,9 @@ function ShiftsTab({ onError, onDone }: TabProps) {
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-indigo-50">
             {shifts.map((s) => (
-              <tr key={s.id} className="hover:bg-slate-50/70">
+              <tr key={s.id} className="hover:bg-indigo-50/60/70">
                 <td className="px-4 py-3 font-medium text-slate-900">{s.name}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-600">
                   {s.startTime}–{s.endTime}
@@ -929,7 +939,7 @@ function ShiftsTab({ onError, onDone }: TabProps) {
                 </td>
                 <td className="px-4 py-3">
                   {s.isDefault && (
-                    <span className="rounded-md bg-slate-900 px-2 py-0.5 text-xs text-white">
+                    <span className="rounded-md bg-indigo-600 px-2 py-0.5 text-xs text-white">
                       default
                     </span>
                   )}
@@ -1029,10 +1039,10 @@ function ShiftDrawer({
               key={d}
               type="button"
               onClick={() => toggleDay(d)}
-              className={`flex-1 rounded-lg border px-2 py-2 text-xs font-medium transition ${
+              className={`flex-1 rounded-xl border px-2 py-2 text-xs font-medium transition ${
                 days.includes(d)
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-500 hover:border-slate-400"
+                  ? "border-indigo-600 bg-indigo-600 text-white"
+                  : "border-indigo-200 text-slate-500 hover:border-slate-400"
               }`}
             >
               {DAY_LABELS[d]}
@@ -1057,7 +1067,7 @@ function ShiftDrawer({
       <button
         onClick={save}
         disabled={busy || !name.trim() || days.length === 0}
-        className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+        className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
       >
         {busy ? "Saving…" : isNew ? "Create shift" : "Save changes"}
       </button>
@@ -1133,7 +1143,7 @@ function ThresholdsTab({ onError, onDone }: TabProps) {
             const t = teams.find((x) => x.id === e.target.value);
             if (t) selectTeam(t);
           }}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          className="rounded-xl border border-indigo-200 px-3 py-2 text-sm"
         >
           {teams.map((t) => (
             <option key={t.id} value={t.id}>
@@ -1147,7 +1157,7 @@ function ThresholdsTab({ onError, onDone }: TabProps) {
       </div>
 
       {team && (
-        <div className="rounded-xl border border-slate-200 bg-white p-6">
+        <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {THRESHOLD_FIELDS.map((f) => (
               <Field key={f.key} label={f.label} hint={f.hint}>
@@ -1171,7 +1181,7 @@ function ThresholdsTab({ onError, onDone }: TabProps) {
           <button
             onClick={save}
             disabled={busy}
-            className="mt-6 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            className="mt-6 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Saving…" : "Save thresholds"}
           </button>
@@ -1249,7 +1259,7 @@ function LeaveTab({ options, onError, onDone }: TabProps) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] p-5">
         <p className="mb-4 text-sm text-slate-500">
           A leave day removes that day&apos;s target, so approved leave never drags
           attainment down. Absence without leave does.
@@ -1291,16 +1301,16 @@ function LeaveTab({ options, onError, onDone }: TabProps) {
           <button
             onClick={mark}
             disabled={busy || !userId}
-            className="ml-auto rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            className="ml-auto rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
             {busy ? "Marking…" : "Mark leave"}
           </button>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <thead className="bg-[#F6F7FE] text-left text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Person</th>
@@ -1310,9 +1320,9 @@ function LeaveTab({ options, onError, onDone }: TabProps) {
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-indigo-50">
             {rows.map((r) => (
-              <tr key={r.id} className="hover:bg-slate-50/70">
+              <tr key={r.id} className="hover:bg-indigo-50/60/70">
                 <td className="px-4 py-3 tabular-nums text-slate-900">
                   {String(r.date).slice(0, 10)}
                 </td>
@@ -1364,8 +1374,8 @@ function Drawer({
         className="absolute inset-0 bg-slate-900/20 backdrop-blur-[1px]"
         onClick={onClose}
       />
-      <div className="relative h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+      <div className="relative h-full w-full max-w-md overflow-y-auto border-l border-indigo-100 bg-white shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-indigo-100 bg-white px-6 py-4">
           <h2 className="font-medium text-slate-900">{title}</h2>
           <button
             onClick={onClose}
@@ -1424,7 +1434,7 @@ function Input({
       placeholder={placeholder}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 disabled:bg-slate-50 disabled:text-slate-400"
+      className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 disabled:bg-[#F6F7FE] disabled:text-slate-400"
     />
   );
 }
@@ -1442,7 +1452,7 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900"
+      className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500"
     >
       {children}
     </select>
@@ -1466,7 +1476,7 @@ function Toggle({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 rounded border-slate-300"
+        className="mt-0.5 h-4 w-4 rounded border-indigo-200"
       />
       <span>
         <span className="block text-sm text-slate-800">{label}</span>

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 
@@ -8,6 +9,17 @@ if (!connectionString) throw new Error("DIRECT_URL must be set in backend/.env")
 
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
+
+// Seed passwords are never written in code. Set SEED_PASSWORD_ADMIN / _MANAGER / _EMPLOYEE in the environment,
+// or a random one is generated and printed once at the end.
+const generated: string[] = [];
+function seedPassword(envName: string): string {
+  const fromEnv = process.env[envName];
+  if (fromEnv) return fromEnv;
+  const pw = randomBytes(9).toString("base64url") + "!7";
+  generated.push(envName + "=" + pw);
+  return pw;
+}
 
 async function main() {
   console.log("Seeding...");
@@ -92,7 +104,7 @@ async function main() {
   const people = [
     {
       email: "admin@avatarindia.com",
-      password: "Admin@12345",
+      password: seedPassword("SEED_PASSWORD_ADMIN"),
       firstName: "System",
       lastName: "Admin",
       code: "AVT-0001",
@@ -101,7 +113,7 @@ async function main() {
     },
     {
       email: "manager@avatarindia.com",
-      password: "Manager@12345",
+      password: seedPassword("SEED_PASSWORD_MANAGER"),
       firstName: "Neha",
       lastName: "Sharma",
       code: "AVT-0002",
@@ -110,7 +122,7 @@ async function main() {
     },
     {
       email: "priya@avatarindia.com",
-      password: "Employee@12345",
+      password: seedPassword("SEED_PASSWORD_EMPLOYEE"),
       firstName: "Priya",
       lastName: "Nair",
       code: "AVT-0003",
@@ -119,7 +131,7 @@ async function main() {
     },
     {
       email: "rahul@avatarindia.com",
-      password: "Employee@12345",
+      password: seedPassword("SEED_PASSWORD_EMPLOYEE"),
       firstName: "Rahul",
       lastName: "Verma",
       code: "AVT-0004",
@@ -193,10 +205,8 @@ async function main() {
   console.log("  reporting lines set");
 
   console.log("\nSeed complete.\n");
-  console.log("  admin@avatarindia.com    Admin@12345");
-  console.log("  manager@avatarindia.com  Manager@12345");
-  console.log("  priya@avatarindia.com    Employee@12345");
-  console.log("  rahul@avatarindia.com    Employee@12345");
+  console.log("  users: admin@, manager@, priya@, rahul@ (avatarindia.com)");
+  if (generated.length) console.log("  generated passwords (shown once):\n    " + generated.join("\n    "));
 }
 
 main()

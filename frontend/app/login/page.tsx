@@ -46,11 +46,11 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+    <main className="min-h-screen bg-[var(--background)] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         {/* Brand mark */}
         <div className="mb-8">
-          <div className="h-11 w-11 rounded-xl bg-slate-900 flex items-center justify-center mb-5">
+          <div className="h-11 w-11 rounded-xl bg-indigo-600 flex items-center justify-center mb-5">
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -64,7 +64,7 @@ export default function LoginPage() {
             </svg>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Productivity Tracker
+            Avatar HRMS
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             Sign in to start your day
@@ -73,7 +73,7 @@ export default function LoginPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4"
+          className="rounded-2xl bg-white p-6 shadow-[var(--shadow-card)] space-y-4"
         >
                    <div>
             <label
@@ -97,7 +97,7 @@ export default function LoginPage() {
               autoCapitalize="off"
               spellCheck={false}
               placeholder="AWL-01"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             />
             <p className="mt-1.5 text-xs text-slate-400">
               Use the employee ID your company issued you.
@@ -118,12 +118,12 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+              className="w-full rounded-xl border border-indigo-200 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
 
           {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
               {error}
             </div>
           )}
@@ -131,7 +131,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading || !email || !password}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>

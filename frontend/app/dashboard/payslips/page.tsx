@@ -77,7 +77,7 @@ export default function PayslipsPage() {
     setOpening(slip.id);
     setError("");
     try {
-      const res = await fetch(`${API}/payroll/${slip.id}/file`, {
+      const res = await fetch(`${API}/payroll/${slip.id}/download`, {
         headers: { Authorization: `Bearer ${token()}` },
       });
       if (!res.ok) {
@@ -109,7 +109,7 @@ export default function PayslipsPage() {
         </div>
 
         {data && data.years.length > 1 && (
-          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <div className="inline-flex rounded-xl border border-indigo-100 bg-[#F6F7FE] p-0.5">
             {data.years.map((y) => (
               <button
                 key={y}
@@ -133,12 +133,12 @@ export default function PayslipsPage() {
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <ul className="divide-y divide-slate-100">
+      <section className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)]">
+        <ul className="divide-y divide-indigo-50">
           {data?.slips.map((slip) => (
             <li
               key={slip.id}
-              className="flex flex-wrap items-center gap-4 px-5 py-4 transition hover:bg-slate-50/70"
+              className="flex flex-wrap items-center gap-4 px-5 py-4 transition hover:bg-indigo-50/60/70"
             >
               <div className="min-w-32">
                 <p className="text-sm font-medium text-slate-900">{slip.label}</p>
@@ -162,7 +162,7 @@ export default function PayslipsPage() {
               <button
                 onClick={() => open(slip)}
                 disabled={opening === slip.id}
-                className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:opacity-40"
+                className="shrink-0 rounded-xl border border-indigo-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-indigo-600 hover:text-slate-900 disabled:opacity-40"
               >
                 {opening === slip.id ? "Opening…" : "Open PDF"}
               </button>

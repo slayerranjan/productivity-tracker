@@ -15,6 +15,7 @@
 
 import * as mailerModule from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 
 // Never mail more than this in one tick. The 53 imported employees all
 // default to onboardingStatus = OFFER_SENT, so a query mistake could try to

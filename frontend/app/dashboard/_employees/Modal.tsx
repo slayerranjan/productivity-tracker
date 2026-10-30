@@ -1,0 +1,71 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+
+// A centred white dialog on a dimmed lavender-slate overlay. Esc closes it,
+// the page behind stops scrolling, and focus moves into the dialog so keyboard
+// users are not left tabbing through the page underneath.
+export function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+  width = "max-w-3xl",
+  dismissible = true,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  width?: string;
+  dismissible?: boolean;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panel.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && dismissible) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose, dismissible]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="absolute inset-0 bg-[#1E293B]/45 backdrop-blur-[2px]" onClick={dismissible ? onClose : undefined} />
+      <div
+        ref={panel}
+        tabIndex={-1}
+        className={`relative flex max-h-[94vh] w-full ${width} flex-col overflow-hidden rounded-t-3xl bg-white shadow-[var(--shadow-lift)] outline-none sm:rounded-3xl`}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-indigo-100 px-5 py-4 sm:px-7 sm:py-5">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+          </div>
+          {dismissible && (
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded-full p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-slate-700"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="m5 5 10 10M15 5 5 15" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">{children}</div>
+        {footer && <div className="border-t border-indigo-100 bg-[#F6F7FE] px-5 py-4 sm:px-7">{footer}</div>}
+      </div>
+    </div>
+  );
+}

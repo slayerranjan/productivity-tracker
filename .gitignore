@@ -21,3 +21,6 @@ logins.txt
 # Generated payslips - real pay data, never in the repository
 backend/payslip-*.pdf
 backend/tmp/
+# Local environment files (database passwords, API keys). Only .env.example is tracked.
+.env.*
+!.env.example

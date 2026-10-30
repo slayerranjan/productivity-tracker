@@ -7,11 +7,14 @@
 
 import { Router } from "express";
 import * as tasks from "./tasks.service.js";
+import { guardUuidParams, isBadInput } from "../../lib/params.js";
 
 const router = Router();
+guardUuidParams(router);
 
 const MESSAGES: Record<string, { status: number; message: string }> = {
   USER_NOT_FOUND: { status: 404, message: "Not signed in." },
+  BAD_DATE: { status: 400, message: "Dates must be in YYYY-MM-DD format." },
   NOT_FOUND: { status: 404, message: "That task doesn't exist." },
   FORBIDDEN: { status: 403, message: "Only managers can do that." },
   NOT_YOUR_TEAM: { status: 403, message: "That person isn't in your team." },
@@ -27,9 +30,27 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
     message: "Approved work can't be deleted. Ask your manager to cancel it.",
   },
   REASON_REQUIRED: { status: 400, message: "Say why you're rejecting it." },
+  // Codes the service throws. Each one used to fall through to a 500.
+  NOT_ALLOWED: { status: 403, message: "Only managers can do that." },
+  TITLE_REQUIRED: { status: 400, message: "A title is required." },
+  TITLE_TOO_LONG: { status: 400, message: "Keep the title under 200 characters." },
+  USER_REQUIRED: { status: 400, message: "Pick who the task is for." },
+  BAD_WEIGHT: { status: 400, message: "That isn't a valid weight." },
+  NOTHING_TO_UPDATE: { status: 400, message: "There was nothing to change." },
+  NOT_MY_PROJECT: { status: 403, message: "You aren't on that project." },
+  NOT_APPROVED_YET: { status: 400, message: "Your manager hasn't approved that task yet." },
+  NOT_FINISHED_YET: { status: 400, message: "It hasn't been marked done yet." },
+  ALREADY_ANSWERED: { status: 409, message: "That proposal was already decided." },
+  APPROVED_CANNOT_EDIT: { status: 400, message: "Approved work can't be edited. Ask your manager." },
+  ALREADY_STARTED: { status: 400, message: "You've already started that task, so it can't be deleted." },
+  ASSIGNED_CANNOT_DELETE: { status: 400, message: "A task your manager assigned can't be deleted." },
 };
 
 function fail(res: any, error: unknown) {
+  if (isBadInput(error)) {
+    res.status(400).json({ error: "One of the values sent is not valid." });
+    return;
+  }
   const code = error instanceof Error ? error.message : "UNKNOWN";
   const mapped = MESSAGES[code];
   if (mapped) return res.status(mapped.status).json({ error: mapped.message });
