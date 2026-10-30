@@ -55,6 +55,11 @@ model Platform {
   tickets            Ticket[]
   biometricImports   BiometricImport[]
   biometricPunches   BiometricPunch[]
+  // What this person is paid each month, in rupees. One figure - Avatar
+  // pays a flat in-hand salary with no basic/HRA split, so modelling
+  // components here would be inventing structure that does not exist.
+  monthlySalary      Decimal? @db.Decimal(10, 2)
+
   salarySlips        SalarySlip[]
   auditLogs AuditLog[]
 
@@ -249,6 +254,11 @@ model TeamConfig {
   breakBudgetMinutes Int   @default(60)
 
   lateLoginGraceMinutes    Int   @default(15) // measured from shift start
+
+  // What a day counts as, by hours actually worked. Editable per team
+  // because a support shift and a field shift are not the same day.
+  fullDayAfterHours Float @default(8)
+  halfDayAfterHours Float @default(4)
   breakOverageAlertMinutes Int   @default(0) // 0 = alert as soon as budget is exceeded
   overtimeAlertMinutes     Int   @default(15)
   lowProductivityThreshold Float @default(0.75) // fraction of productiveHours

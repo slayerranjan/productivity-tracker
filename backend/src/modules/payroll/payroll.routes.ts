@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireRole } from "../../middlewares/auth.js";
 import * as payroll from "./payroll.service.js";
 import { guardUuidParams, isBadInput } from "../../lib/params.js";
+import * as generate from "./payroll.generate.js";
 
 const router = Router();
 guardUuidParams(router);
@@ -86,6 +87,59 @@ router.get("/:id/download", async (req, res) => {
 
 // --- HR / ADMIN -----------------------------------------------------------
 router.use(requireRole("HR", "ADMIN"));
+
+
+// --- GENERATION -----------------------------------------------------------
+router.post("/generate", async (req, res) => {
+  try {
+    const now = new Date();
+    res.json(
+      await generate.generateMonth(
+        req.user!.userId,
+        num(req.body?.month, now.getMonth() + 1),
+        num(req.body?.year, now.getFullYear()),
+        req.body?.platformId ? String(req.body.platformId) : undefined
+      )
+    );
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// The review screen: the slip and the attendance it came from, side by side.
+router.get("/:id/review", async (req, res) => {
+  try {
+    res.json(
+      await generate.getSlipWithAttendance(req.user!.userId, String(req.params.id))
+    );
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post("/:id/deduction", async (req, res) => {
+  try {
+    res.json(
+      await generate.setOtherDeduction(
+        req.user!.userId,
+        String(req.params.id),
+        num(req.body?.amount, 0),
+        String(req.body?.note ?? "")
+      )
+    );
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post("/approve", async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.slipIds) ? req.body.slipIds : [];
+    res.json(await generate.approveSlips(req.user!.userId, ids.map(String)));
+  } catch (err) {
+    fail(res, err);
+  }
+});
 
 router.get("/month", async (req, res) => {
   try {

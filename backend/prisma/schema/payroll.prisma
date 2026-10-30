@@ -27,10 +27,26 @@ model SalarySlip {
   netAmount   Decimal? @db.Decimal(12, 2)
 
   // Storage key only — never a public URL. Signed on read.
-  storageKey String
-  fileName   String
+  storageKey String?
+  fileName   String?
   fileSize   Int?
   mimeType   String?
+
+  // How the figure was reached. Stored rather than recalculated, so a slip
+  // issued in October still shows October's arithmetic even if somebody
+  // edits a salary or corrects an attendance day in November.
+  daysInMonth  Int?
+  payableDays  Decimal? @db.Decimal(5, 2)
+  absentDays   Decimal? @db.Decimal(5, 2)
+  perDayRate   Decimal? @db.Decimal(10, 2)
+  lossOfPay    Decimal? @db.Decimal(12, 2)
+  otherDeduction     Decimal? @db.Decimal(12, 2)
+  otherDeductionNote String?
+
+  // DRAFT until HR has looked at it. Nothing reaches an employee on its own.
+  status      String    @default("DRAFT")
+  generatedAt DateTime?
+  approvedAt  DateTime?
 
   uploadedById String @db.Uuid
   uploadedBy   User   @relation("SalarySlipUploader", fields: [uploadedById], references: [id])
