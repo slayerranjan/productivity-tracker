@@ -538,6 +538,66 @@ export async function closeStaleMeetings(): Promise<number> {
 
   return stale.length;
 }
+// A single break may run for this many times the team's whole-day break
+// budget before the system ends it. The budget itself comes from TeamConfig;
+// the multiple only leaves room for a long lunch before we assume the person
+// simply forgot to press "end break".
+const STALE_BREAK_BUDGET_MULTIPLE = 2;
+
+// Run on a timer, same idea as closeStaleMeetings: a break left open past the
+// limit is closed and credited only up to the limit. The hours after that were
+// somebody forgetting a button, and counting them as break would zero out a
+// whole day of productive time.
+export async function closeStaleBreaks(): Promise<number> {
+  const open = await prisma.trackerBreak.findMany({
+    where: { endedAt: null },
+    select: {
+      id: true,
+      startedAt: true,
+      workSessionId: true,
+      workSession: {
+        select: {
+          user: {
+            select: {
+              teamMemberships: {
+                where: { isActive: true },
+                select: { team: { select: { config: { select: { breakBudgetMinutes: true } } } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const now = Date.now();
+  const touched = new Set<string>();
+
+  for (const b of open) {
+    const budget =
+      b.workSession.user.teamMemberships[0]?.team.config?.breakBudgetMinutes ??
+      DEFAULTS.breakBudgetMinutes;
+    const limitMs = budget * STALE_BREAK_BUDGET_MULTIPLE * 60_000;
+    if (now - b.startedAt.getTime() < limitMs) continue;
+
+    await prisma.trackerBreak.update({
+      where: { id: b.id },
+      data: {
+        endedAt: new Date(b.startedAt.getTime() + limitMs),
+        durationSeconds: Math.floor(limitMs / 1000),
+        autoClosed: true,
+      },
+    });
+    touched.add(b.workSessionId);
+  }
+
+  for (const sessionId of touched) {
+    await recompute(sessionId);
+  }
+
+  return touched.size;
+}
+
 export async function endMeeting(userId: string) {
   const ctx = await getContext(userId);
   const date = platformToday(ctx.timezone);
