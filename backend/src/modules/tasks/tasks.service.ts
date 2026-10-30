@@ -1,4 +1,5 @@
 import { emitTaskChange } from "../../lib/realtime.js";
+import { taskNotice } from "./tasks.notify.js";
 import { prisma } from "../../lib/prisma.js";
 import { inPinnedCompany, onlyPinnedCompany } from "../../lib/deployment.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
@@ -365,6 +366,7 @@ export async function proposeTask(userId: string, body: Record<string, unknown>)
     select: { id: true },
   });
   emitTaskChange({ taskId: created.id, ownerId: userId, action: "created" }); // after the write succeeded
+  if (!selfApprove) await taskNotice("proposed", created.id, userId);
 
   return listTasks(userId);
 }
@@ -450,6 +452,7 @@ export async function updateMyTask(
     data: data as never,
   });
   emitTaskChange({ taskId, ownerId: userId, action: body.status !== undefined ? "status" : "updated" });
+  if (body.status !== undefined && String(body.status) === "COMPLETED" && String(task.status) !== "COMPLETED") await taskNotice("submitted", taskId, userId);
 
   return listTasks(userId);
 }
@@ -689,6 +692,7 @@ export async function assignTask(
     select: { id: true },
   });
   emitTaskChange({ taskId: assigned.id, ownerId: targetUserId, action: "assigned" });
+  await taskNotice("assigned", assigned.id, managerId);
 
   return listForApproval(managerId);
 }
@@ -729,6 +733,7 @@ export async function approveTask(
     },
   });
   emitTaskChange({ taskId, ownerId: task.userId, action: approve ? "approved" : "rejected" });
+  await taskNotice(approve ? "proposalApproved" : "proposalReturned", taskId, managerId, { note: approve ? null : note ? String(note) : null });
 
   return listForApproval(managerId);
 }
@@ -768,6 +773,7 @@ export async function reviewTask(
     },
   });
   emitTaskChange({ taskId, ownerId: task.userId, action: "graded" });
+  await taskNotice(outcomeIn === "FAILED" ? "notAccepted" : "approved", taskId, managerId, { note: note ? String(note) : null, partial: outcomeIn === "PARTIALLY_COMPLETED" });
 
   return listForApproval(managerId);
 }

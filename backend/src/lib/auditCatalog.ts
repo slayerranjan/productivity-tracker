@@ -115,7 +115,12 @@ const RULES: Rule[] = [
 
   { method: "POST", re: /^\/api\/policies\/:id\/acknowledge$/, module: "Policies", action: "APPROVE", summary: "Confirmed they read a policy", recordType: "InductionDocument" },
   { method: "POST", re: /^\/api\/policies$/, module: "Policies", action: "CREATE", summary: "Added a policy document" },
-  { method: "POST", re: /^\/api\/policies\/:id\/file$/, module: "Policies", action: "UPDATE", summary: "Replaced a policy file (new version)", recordType: "InductionDocument" },
+  { method: "POST", re: /^\/api\/policies\/:id\/file$/, module: "Policies", action: "UPDATE", summary: "Replaced the file of an unpublished policy version", recordType: "InductionDocument" },
+  { method: "PATCH", re: /^\/api\/policies\/:id$/, module: "Policies", action: "UPDATE", summary: "Edited a draft policy", recordType: "InductionDocument" },
+  { method: "POST", re: /^\/api\/policies\/:id\/versions$/, module: "Policies", action: "CREATE", summary: "Prepared a new policy version", recordType: "InductionDocument" },
+  { method: "POST", re: /^\/api\/policies\/:id\/publish$/, module: "Policies", action: "APPROVE", summary: "Published a policy", recordType: "InductionDocument" },
+  { method: "POST", re: /^\/api\/policies\/categories$/, module: "Policies", action: "CREATE", summary: "Added a policy category" },
+  { method: "POST", re: /^\/api\/policies\/:id\/notes\/:id$/, module: "Policies", action: "UPDATE", summary: "Updated a policy review note", recordType: "PolicyReviewNote" },
   { method: "POST", re: /^\/api\/policies\/:id\/archive$/, module: "Policies", action: "UPDATE", summary: "Archived a policy document", recordType: "InductionDocument" },
   { method: "POST", re: /^\/api\/policies\/:id\/restore$/, module: "Policies", action: "UPDATE", summary: "Restored a policy document", recordType: "InductionDocument" },
 

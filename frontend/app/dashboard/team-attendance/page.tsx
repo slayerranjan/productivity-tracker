@@ -77,7 +77,7 @@ export default function TeamAttendancePage() {
   const tz = live?.timezone ?? "Asia/Kolkata";
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-8">
+    <div className="mx-auto page-7xl space-y-6 p-4 sm:p-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Team Attendance</h1>
         <p className="mt-1 text-sm text-slate-500">

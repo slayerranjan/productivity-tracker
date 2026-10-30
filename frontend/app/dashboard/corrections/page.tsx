@@ -114,7 +114,7 @@ function CorrectionsInner() {
     : [["MINE", "My requests"]];
 
   return (
-    <div className="space-y-6 p-8">
+    <div className="page-fluid space-y-6 p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Attendance corrections</h1>

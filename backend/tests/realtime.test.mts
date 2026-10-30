@@ -7,7 +7,7 @@
 // (The DATABASE_URL is a dummy: nothing here ever connects to a database.)
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { startRealtime, stopRealtime, emitTaskChange, type SocketUser } from "../src/lib/realtime.js";
+import { startRealtime, stopRealtime, emitTaskChange, emitNotificationChange, type SocketUser } from "../src/lib/realtime.js";
 
 const requireFromFrontend = createRequire(new URL("../../frontend/package.json", import.meta.url));
 const { io: connect } = requireFromFrontend("socket.io-client") as { io: (url: string, opts: object) => any };
@@ -39,12 +39,13 @@ startRealtime(httpServer, {
 await new Promise<void>((r) => httpServer.listen(0, r));
 const URL_ = `http://localhost:${(httpServer.address() as { port: number }).port}`;
 
-type Client = { sock: any; events: any[]; ready: number; connectError: string | null };
+type Client = { sock: any; events: any[]; inbox: any[]; ready: number; connectError: string | null };
 function client(token: string | null, opts: object = {}): Promise<Client> {
   return new Promise((resolve) => {
-    const c: Client = { sock: null, events: [], ready: 0, connectError: null };
+    const c: Client = { sock: null, events: [], inbox: [], ready: 0, connectError: null };
     c.sock = connect(URL_, { auth: token === null ? {} : { token }, transports: ["websocket"], reconnectionDelay: 100, reconnectionDelayMax: 300, ...opts });
     c.sock.on("tasks:changed", (e: unknown) => c.events.push(e));
+    c.sock.on("notifications:changed", (e: unknown) => c.inbox.push(e));
     c.sock.on("ready", () => { c.ready += 1; if (c.ready === 1) resolve(c); });
     c.sock.on("connect_error", (e: Error) => { c.connectError = e.message; if (!opts || !(opts as { keepTrying?: boolean }).keepTrying) resolve(c); });
   });
@@ -57,7 +58,7 @@ const none = await client(null);
 ok("no token is refused", none.connectError === "NOT_AUTHENTICATED", none.connectError);
 const bad = await client("not-a-real-token");
 ok("an unknown token is refused", bad.connectError === "NOT_AUTHENTICATED", bad.connectError);
-const urlToken = await new Promise<Client>((resolve) => { const c: Client = { sock: null, events: [], ready: 0, connectError: null }; c.sock = connect(URL_ + "?token=mgrA", { transports: ["websocket"], reconnection: false }); c.sock.on("connect_error", (e: Error) => { c.connectError = e.message; resolve(c); }); c.sock.on("ready", () => resolve(c)); });
+const urlToken = await new Promise<Client>((resolve) => { const c: Client = { sock: null, events: [], inbox: [], ready: 0, connectError: null }; c.sock = connect(URL_ + "?token=mgrA", { transports: ["websocket"], reconnection: false }); c.sock.on("connect_error", (e: Error) => { c.connectError = e.message; resolve(c); }); c.sock.on("ready", () => resolve(c)); });
 ok("a token in the URL (not the handshake auth) is not accepted", urlToken.connectError === "NOT_AUTHENTICATED", urlToken.connectError);
 
 // 2. who hears what ---------------------------------------------------------------------------
@@ -124,6 +125,30 @@ revoked.add("e2"); // e2 is suspended
 const reason = await Promise.race([gone, sleep(4000).then(() => "STILL CONNECTED")]);
 ok("a suspended user is cut off by the periodic re-check", reason === "io server disconnect", reason);
 e2.sock.close();
+
+// 7b. notification signals go ONLY to the recipient's private inbox -----------------------------------------------
+for (const c of [mgrA, mgrB, hr, e1, e3, e4]) c.inbox.length = 0;
+emitNotificationChange(["e1"]);
+await sleep(300);
+ok("a notification signal reaches only its recipient (e1)", e1.inbox.length === 1 && e3.inbox.length === 0 && e4.inbox.length === 0, { e1: e1.inbox.length, e3: e3.inbox.length });
+ok("...and NOT the manager or HR who can see e1's tasks (they learn nothing about e1's inbox)", mgrA.inbox.length === 0 && hr.inbox.length === 0 && mgrB.inbox.length === 0, { mgrA: mgrA.inbox.length, hr: hr.inbox.length });
+ok("the signal carries no content (only eventId and time)", Object.keys(e1.inbox[0] ?? {}).sort().join() === "at,eventId", Object.keys(e1.inbox[0] ?? {}));
+emitNotificationChange(["e1", "e3", "e1"]);
+await sleep(300);
+ok("several recipients each get exactly one signal (a repeated id does not double it)", e1.inbox.length === 2 && e3.inbox.length === 1 && e4.inbox.length === 0, { e1: e1.inbox.length, e3: e3.inbox.length });
+emitNotificationChange([]);
+await sleep(100);
+ok("signalling nobody is a harmless no-op", e1.inbox.length === 2);
+e4.sock.emit("join", "inbox:e1"); e4.sock.emit("subscribe", "inbox:e1"); e4.sock.emit("resync", { room: "inbox:e1" });
+await sleep(500);
+emitNotificationChange(["e1"]);
+await sleep(300);
+ok("an employee cannot join another person's inbox", e4.inbox.length === 0, e4.inbox);
+e1.sock.io.engine.close();
+await sleep(1200);
+emitNotificationChange(["e1"]);
+await sleep(300);
+ok("after a network drop and reconnect the private inbox works again", e1.inbox.length === 4, e1.inbox.length);
 
 // 8. emitting never breaks a save --------------------------------------------------------------------------
 let threw = false;

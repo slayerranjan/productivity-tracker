@@ -499,7 +499,7 @@ export default function TodayView() {
   const roleLine = me.designation ?? `${String(me.role).charAt(0)}${String(me.role).slice(1).toLowerCase()}`;
 
   return (
-    <div className="mx-auto max-w-6xl p-3 sm:p-6">
+    <div className="mx-auto page-6xl p-3 sm:p-6">
       <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6">
         {/* ===================== header ===================== */}
         <header className="flex flex-wrap items-center justify-between gap-4">

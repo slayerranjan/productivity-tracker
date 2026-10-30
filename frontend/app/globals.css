@@ -63,6 +63,93 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ---------------------------------------------------------------------------
+   PAGE WIDTH
+   How wide a page's content may grow. The sidebar is fixed and the content column already takes all the
+   remaining space; what held content back on big monitors was each page capping itself with a fixed
+   max-w-* (so it stopped growing and left a blank strip). Pages now use these shared widths instead.
+
+   Below 1600 px every value is exactly the old max-w size (3xl..7xl), so laptops look the same as before.
+   From 1600 px up they grow with the screen, and the content is centred so a very large monitor
+   gets balanced margins instead of a one-sided gap. "fluid" = no cap below 1600 px (pages that never had one).
+   To tune big-screen widths, change the numbers here and nowhere else.
+--------------------------------------------------------------------------- */
+:root {
+  --page-3xl: 48rem;
+  --page-4xl: 56rem;
+  --page-5xl: 64rem;
+  --page-6xl: 72rem;
+  --page-7xl: 80rem;
+  --page-fluid: 100%;
+}
+@media (min-width: 1600px) {
+  :root {
+    --page-3xl: 64rem;
+    --page-4xl: 88rem;
+    --page-5xl: 96rem;
+    --page-6xl: 104rem;
+    --page-7xl: 112rem;
+    --page-fluid: 112rem;
+  }
+}
+@media (min-width: 1920px) {
+  :root {
+    --page-3xl: 72rem;
+    --page-4xl: 96rem;
+    --page-5xl: 104rem;
+    --page-6xl: 112rem;
+    --page-7xl: 120rem;
+    --page-fluid: 120rem;
+  }
+}
+@media (min-width: 2400px) {
+  :root {
+    --page-3xl: 80rem;
+    --page-4xl: 104rem;
+    --page-5xl: 112rem;
+    --page-6xl: 120rem;
+    --page-7xl: 128rem;
+    --page-fluid: 128rem;
+  }
+}
+
+@utility page-3xl {
+  max-width: var(--page-3xl);
+  @media (min-width: 1600px) {
+    margin-inline: auto;
+  }
+}
+@utility page-4xl {
+  max-width: var(--page-4xl);
+  @media (min-width: 1600px) {
+    margin-inline: auto;
+  }
+}
+@utility page-5xl {
+  max-width: var(--page-5xl);
+  @media (min-width: 1600px) {
+    margin-inline: auto;
+  }
+}
+@utility page-6xl {
+  max-width: var(--page-6xl);
+  @media (min-width: 1600px) {
+    margin-inline: auto;
+  }
+}
+@utility page-7xl {
+  max-width: var(--page-7xl);
+  @media (min-width: 1600px) {
+    margin-inline: auto;
+  }
+}
+@utility page-fluid {
+  max-width: var(--page-fluid);
+  @media (min-width: 1600px) {
+    margin-inline: auto;
+  }
+}
+
 /* NOTE: the default Next.js dark-mode block was removed on purpose. Every
    screen in this app is built on light cards; honouring the OS dark setting
    gave white text on white cards. If we want dark mode it needs designing,

@@ -359,7 +359,7 @@ export default function HrDashboard() {
   const dim = report.loading && report.data ? "opacity-60 transition-opacity" : "transition-opacity";
 
   return (
-    <div className="grid gap-5 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:grid-rows-[auto_1fr]">
+    <div className="page-fluid grid gap-5 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:grid-rows-[auto_1fr]">
       {/* profile row: first on small screens, top of the right column on wide ones */}
       <div className="flex items-center justify-end gap-3 xl:col-start-2 xl:row-start-1">
         <Link

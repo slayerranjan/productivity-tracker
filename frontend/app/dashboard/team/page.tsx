@@ -221,7 +221,7 @@ export default function TeamPage() {
   });
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-8 page-6xl">
       <header className="mb-6 flex items-end justify-between gap-4">
         <div>
           <p className="text-sm text-slate-400">Live - refreshes every 15s</p>

@@ -172,7 +172,7 @@ export default function TasksPage() {
   const score = data?.score;
 
   return (
-    <div className="p-8 max-w-4xl space-y-5">
+    <div className="p-8 page-4xl space-y-5">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
           Daily tasks
