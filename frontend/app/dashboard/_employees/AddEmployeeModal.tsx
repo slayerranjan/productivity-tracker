@@ -146,7 +146,8 @@ export default function AddEmployeeModal({ onClose, onDone }: { onClose: () => v
   const company = lookups?.companies.find((c) => c.id === companyId);
 
   const teams = useMemo(() => (lookups?.teams ?? []).filter((t) => t.platformId === companyId), [lookups, companyId]);
-  const managers = useMemo(() => (lookups?.managers ?? []).filter((m) => m.platformId === companyId), [lookups, companyId]);
+  // A manager may sit in another company, so this list is not filtered by it.
+  const managers = useMemo(() => lookups?.managers ?? [], [lookups]);
   const shifts = useMemo(() => (lookups?.shifts ?? []).filter((s) => s.platformId === companyId), [lookups, companyId]);
   const manager = managers.find((m) => m.id === form.managerId);
 

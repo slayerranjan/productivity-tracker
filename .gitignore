@@ -24,3 +24,4 @@ backend/tmp/
 # Local environment files (database passwords, API keys). Only .env.example is tracked.
 .env.*
 !.env.example
+backend/salaries.csv

@@ -1219,13 +1219,26 @@ export async function employeeLookups(viewerId: string) {
   const scope = viewer.owner ? {} : { platformId: viewer.platformId };
   const year = new Date().getUTCFullYear();
 
-  const [companies, teams, shifts, people, holidays] = await Promise.all([
+  const [companies, teams, shifts, people, managerPool, holidays] = await Promise.all([
     prisma.platform.findMany({ where: platformWhere, select: { id: true, name: true, slug: true, employeeCodePrefix: true }, orderBy: { name: "asc" } }),
     prisma.team.findMany({ where: { ...scope, isActive: true }, select: { id: true, name: true, platformId: true }, orderBy: { name: "asc" } }),
     prisma.shift.findMany({ where: { ...scope, isActive: true }, select: { id: true, name: true, platformId: true, startTime: true, endTime: true, workingDays: true }, orderBy: { name: "asc" } }),
     prisma.user.findMany({
       where: { ...scope, status: { not: "EXITED" } },
       select: { id: true, firstName: true, lastName: true, employeeCode: true, role: true, platformId: true, designation: true },
+      orderBy: { firstName: "asc" },
+    }),
+
+    // Who may appear in a "reports to" dropdown. MANAGER and ADMIN only: HR
+    // administers people, it does not approve their work. Deliberately NOT
+    // scoped to one company - several managers run teams across more than
+    // one. Same rule as getAdminOptions, so the two lists cannot drift.
+    prisma.user.findMany({
+      where: { role: { in: ["MANAGER", "ADMIN"] }, status: { not: "EXITED" } },
+      select: {
+        id: true, firstName: true, lastName: true, employeeCode: true,
+        role: true, platformId: true, designation: true,
+      },
       orderBy: { firstName: "asc" },
     }),
     prisma.holiday.groupBy({
@@ -1243,7 +1256,7 @@ export async function employeeLookups(viewerId: string) {
     companies: companies.map((c) => ({ ...c, holidaysThisYear: holidayCount.get(c.id) ?? 0 })),
     teams,
     shifts,
-    managers: people.map((p) => ({
+    managers: managerPool.map((p) => ({
       id: p.id,
       name: `${p.firstName} ${p.lastName}`.trim(),
       employeeCode: p.employeeCode,
