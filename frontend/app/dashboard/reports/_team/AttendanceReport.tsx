@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { apiGet } from "@/lib/api";
 import { clockTime, dayLabel, dayShort, downloadCsv, hmFromHours, hmFromMinutes } from "./format";
 import { PRESETS, rangeFor, type Preset } from "./ranges";
+import { downloadAttendanceXlsx, type Cell } from "./xlsx";
 
 // Attendance report: one row per person per day for a date range.
 // Data: GET /team-attendance/attendance. Finished days use the same attendance engine as salary and Reports, so the
@@ -17,6 +18,7 @@ type Row = {
   stillWorking: boolean; autoClosed: boolean; note: string | null;
   status: string; statusLabel: string; leaveType: string | null; holidayName: string | null;
   lateMinutes: number | null; earlyDepartureMinutes: number | null; tasksCompleted: number;
+  tasksPlanned: number | null; tasksApproved: number | null; // null = no tasks that day (exported blank)
 };
 type Report = {
   generatedAt: string; timezone: string; today: string; from: string; to: string;
@@ -148,19 +150,27 @@ export default function AttendanceReport() {
     setApplied(NO_FILTERS);
   }
 
+  // One table for both downloads, so the CSV and the Excel file always agree. The three task columns sit right
+  // after "Tasks completed"; Pending Tasks = planned - completed (a live formula in the Excel file).
+  const EXPORT_HEADER = ["Employee ID", "Employee", "Team", "Date", "Shift", "Check-in", "Check-out", "Working", "Productive", "Break", "Break over allowance", "Status", "Late arrival", "Early departure", "Tasks completed", "Total Tasks Planned Today", "Tasks Approved Today", "Pending Tasks", "Remarks"];
+  function exportRows(): Cell[][] {
+    return rows.map((r) => [
+      r.employeeCode, r.name, r.teamName, r.date, r.shiftName ? `${r.shiftName}${r.shiftStart && r.shiftEnd ? ` (${r.shiftStart}-${r.shiftEnd})` : ""}` : "Not assigned",
+      clockTime(r.loginAt, tz), r.stillWorking ? "Working" : clockTime(r.logoutAt, tz), hmFromHours(r.workedHours), hmFromHours(r.productiveHours), hmFromHours(r.breakHours),
+      r.breakHours !== null && r.breakHours * 3600 > r.breakBudgetSeconds ? hmFromHours(r.breakHours - r.breakBudgetSeconds / 3600) : "",
+      r.statusLabel, hmFromMinutes(r.lateMinutes), hmFromMinutes(r.earlyDepartureMinutes), r.tasksCompleted,
+      r.tasksPlanned, r.tasksApproved, r.tasksPlanned === null ? null : r.tasksPlanned - r.tasksCompleted, remarks(r),
+    ]);
+  }
   function exportCsv() {
     setMenu(false);
     if (!report) return;
-    downloadCsv(
-      `attendance-${report.from}_to_${report.to}.csv`,
-      ["Employee ID", "Employee", "Team", "Date", "Shift", "Check-in", "Check-out", "Working", "Productive", "Break", "Break over allowance", "Status", "Late arrival", "Early departure", "Tasks completed", "Remarks"],
-      rows.map((r) => [
-        r.employeeCode, r.name, r.teamName, r.date, r.shiftName ? `${r.shiftName}${r.shiftStart && r.shiftEnd ? ` (${r.shiftStart}-${r.shiftEnd})` : ""}` : "Not assigned",
-        clockTime(r.loginAt, tz), r.stillWorking ? "Working" : clockTime(r.logoutAt, tz), hmFromHours(r.workedHours), hmFromHours(r.productiveHours), hmFromHours(r.breakHours),
-        r.breakHours !== null && r.breakHours * 3600 > r.breakBudgetSeconds ? hmFromHours(r.breakHours - r.breakBudgetSeconds / 3600) : "",
-        r.statusLabel, hmFromMinutes(r.lateMinutes), hmFromMinutes(r.earlyDepartureMinutes), r.tasksCompleted, remarks(r),
-      ])
-    );
+    downloadCsv(`attendance-${report.from}_to_${report.to}.csv`, EXPORT_HEADER, exportRows());
+  }
+  function exportXlsx() {
+    setMenu(false);
+    if (!report) return;
+    void downloadAttendanceXlsx(`attendance-${report.from}_to_${report.to}.xlsx`, "Attendance", EXPORT_HEADER, exportRows());
   }
 
   return (
@@ -252,6 +262,9 @@ export default function AttendanceReport() {
             </button>
             {menu && (
               <div role="menu" className="absolute right-0 z-10 mt-1 w-56 rounded-xl border border-indigo-100 bg-white p-1 shadow-lg">
+                <button role="menuitem" onMouseDown={exportXlsx} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                  Download Excel (.xlsx) <span className="block text-xs text-slate-400">formatted, with the Pending Tasks formula</span>
+                </button>
                 <button role="menuitem" onMouseDown={exportCsv} className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
                   Download CSV <span className="block text-xs text-slate-400">opens in Excel</span>
                 </button>

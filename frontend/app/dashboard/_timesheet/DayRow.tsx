@@ -45,7 +45,7 @@ export default function DayRow({ model: m, tz, onOpen, onCorrect }: { model: Day
   return (
     <div className="border-t border-dashed border-slate-200 py-5 first:border-t-0">
       <div className="flex items-baseline justify-between gap-4">
-        <p className="text-[15px] font-semibold text-slate-900">{dayTitle(m.date, m.isToday)}{m.day.session?.project && <span className="ml-2 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">{m.day.session.project.name}</span>}</p>
+        <p className="text-[15px] font-semibold text-slate-900">{dayTitle(m.date, m.isToday)}{m.day.session?.project && <span className="ml-2 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">{m.day.session.project.name}</span>}{m.day.session?.wasLateLogin && m.day.session.lateRemark && <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700" title={m.day.session.lateRemark}>Late remark: {m.day.session.lateRemark.length > 60 ? m.day.session.lateRemark.slice(0, 60) + "…" : m.day.session.lateRemark}</span>}</p>
         <p className="flex items-center gap-3 text-sm text-slate-500">
           {m.day.session?.correction && (
             <span title={`Corrected by ${m.day.session.correction.by}`} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Corrected by HR</span>

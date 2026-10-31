@@ -1,0 +1,73 @@
+// ===========================================================================
+// IN-PERSON MEETING PARTICIPATION (offline stand-ups) - SELF-REPORTED.
+//
+// A scheduled meeting (meetings / meeting_attendees) can be marked "in person, track who joins". Each invited person
+// then presses "I'm in the Meeting" and "Meeting Ended", and the SERVER stamps both times. This records what people
+// declare; it does not prove anyone was physically there.
+//
+// Completely separate from office attendance: nothing here reads or writes work_sessions, breaks, tracker_meetings,
+// working hours or task productivity.
+//
+// NEW TABLES ONLY: no column was added to meetings or any other existing table. A database without these tables keeps
+// working exactly as before (tracking is simply unavailable). No Prisma relations to existing models on purpose; the
+// foreign keys live in the migration SQL.
+// ===========================================================================
+
+// One row per meeting that has participation tracking switched on.
+model MeetingTracking {
+  meetingId  String @id @db.Uuid // = meetings.id
+  platformId String @db.Uuid
+
+  // Someone who joins more than this many minutes after the start is a "late joiner". Chosen per meeting.
+  lateAfterMinutes Int @default(5)
+
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  @@index([platformId])
+  @@map("meeting_tracking")
+}
+
+// One row per invited person per meeting. The unique pair is what stops a second (duplicate) participation record.
+model MeetingParticipation {
+  id         String @id @default(uuid()) @db.Uuid
+  meetingId  String @db.Uuid
+  platformId String @db.Uuid
+  userId     String @db.Uuid
+
+  joinedAt        DateTime // stamped by the server, or set by the organizing manager in a correction
+  leftAt          DateTime? // null while the person is still "in the meeting"
+  durationSeconds Int? // null until they end it
+
+  source  String  @default("SELF") // SELF | MANAGER_ADDED (the manager recorded a join the person never pressed)
+  endedBy String? // SELF | MANAGER (who set leftAt)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+  @@index([userId, joinedAt])
+  @@map("meeting_participation")
+}
+
+// Every correction a manager makes: what it was, what it became, why, and who did it. Rows are only ever added.
+model MeetingParticipationChange {
+  id        String @id @default(uuid()) @db.Uuid
+  meetingId String @db.Uuid
+  userId    String @db.Uuid // the person whose record was corrected
+  actedById String @db.Uuid // the manager
+
+  action String // ADD | EDIT
+  reason String
+
+  beforeJoinedAt DateTime?
+  beforeLeftAt   DateTime?
+  afterJoinedAt  DateTime?
+  afterLeftAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([meetingId, userId])
+  @@map("meeting_participation_changes")
+}

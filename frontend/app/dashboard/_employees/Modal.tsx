@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 // A centred white dialog on a dimmed lavender-slate overlay. Esc closes it,
 // the page behind stops scrolling, and focus moves into the dialog so keyboard
@@ -38,7 +39,10 @@ export function Modal({
     };
   }, [onClose, dismissible]);
 
-  return (
+  // Rendered straight into <body>, so no parent (a transform, filter or animation on a page wrapper) can ever
+  // shrink or offset the "full screen" overlay again.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-[#1E293B]/45 backdrop-blur-[2px]" onClick={dismissible ? onClose : undefined} />
       <div
@@ -66,6 +70,7 @@ export function Modal({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">{children}</div>
         {footer && <div className="border-t border-indigo-100 bg-[#F6F7FE] px-5 py-4 sm:px-7">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

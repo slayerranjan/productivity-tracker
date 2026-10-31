@@ -273,14 +273,16 @@ button:not(:disabled):active {
    a flicker; the live dot breathes so you can tell at a glance the screen
    is actually live and not frozen.
 --------------------------------------------------------------------------- */
+/* Opacity ONLY, on purpose. Any `transform` here (even one held at `none` by the fill mode) makes the page
+   wrapper the containing block for every `position: fixed` child, which clipped every modal and its dimmed
+   background to the height of the page content. Measured in Chrome: transform = 407 px overlay in a 612 px
+   window, opacity only = the full 612 px. */
 @keyframes fadeUp {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 .animate-in {

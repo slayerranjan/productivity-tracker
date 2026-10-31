@@ -10,6 +10,7 @@
 import { prisma } from "../../lib/prisma.js";
 import { platformToday, parseIsoDay } from "../../lib/dates.js";
 import { visibleUserIds } from "../tracker/tracker.service.js";
+import { remarksBySession } from "../tracker/lateRemarks.js";
 import { getMonthAttendanceBulk } from "../attendance/attendance.service.js";
 
 // Where no team config exists these match what Live Team already assumes.
@@ -58,6 +59,7 @@ type SessionWithParts = {
   meetingSeconds: number;
   updatedAt: Date;
   wasLateLogin: boolean;
+  lateRemark?: string | null;
   lateByMinutes: number;
   breaks: { breakType: string; startedAt: Date; endedAt: Date | null; durationSeconds: number | null }[];
   meetings: { approvalStatus: string; startedAt: Date | null; endedAt: Date | null; durationSeconds: number | null }[];
@@ -104,6 +106,8 @@ async function loadPeople(userIds: string[]) {
       lastName: true,
       employeeCode: true,
       designation: true,
+      platform: { select: { name: true } },
+      shift: { select: { name: true, startTime: true, endTime: true } },
       teamMemberships: {
         where: { isActive: true },
         select: { team: { select: { name: true, config: { select: { productiveHours: true, breakBudgetMinutes: true } } } } },
@@ -144,6 +148,7 @@ export async function getLiveBoard(viewerId: string) {
   ]);
   const byUser = new Map(sessions.map((s) => [s.userId, s]));
   const onLeave = new Set(leaveDays.map((l) => l.userId));
+  const remarkOf = await remarksBySession(sessions.map((s) => s.id));
 
   const rows = people.map((p) => {
     const t = targetsFor(p);
@@ -178,9 +183,16 @@ export async function getLiveBoard(viewerId: string) {
       teamName: t.teamName,
       status,
       statusStartedAt: startedAt ? startedAt.toISOString() : null,
+      company: p.platform?.name ?? null,
+      shiftName: p.shift?.name ?? null,
+      shiftStart: p.shift?.startTime ?? null,
+      shiftEnd: p.shift?.endTime ?? null,
       loginAt: s ? s.loginAt.toISOString() : null,
+      logoutAt: s?.logoutAt ? s.logoutAt.toISOString() : null,
+      pendingInvite: !!s?.meetings.some((m) => m.approvalStatus === "PENDING"),
       wasLateLogin: s?.wasLateLogin ?? false,
       lateByMinutes: s?.lateByMinutes ?? 0,
+      lateRemark: s ? remarkOf.get(s.id) ?? null : null,
       shiftSeconds,
       productiveSeconds: s ? productive : null,
       breakSeconds: s ? breakSec : null,
@@ -357,13 +369,28 @@ export async function getAttendanceReport(
   const ids = chosen.map((c) => c.id);
   const [monthly, tasks] = await Promise.all([
     Promise.all(months.map(([yy, mm]) => getMonthAttendanceBulk(ids, yy, mm))),
+    // Every task of the day that still stands (not cancelled), counted by status, so completed / approved / planned
+    // all come from the same rows.
     prisma.dailyTask.groupBy({
-      by: ["userId", "date"],
-      where: { userId: { in: ids }, date: { gte: from, lte: to }, status: "COMPLETED", approvalStatus: "APPROVED" },
+      by: ["userId", "date", "status", "approvalStatus"],
+      where: { userId: { in: ids }, date: { gte: from, lte: to }, status: { not: "CANCELLED" } },
       _count: { _all: true },
     }),
   ]);
-  const taskCount = new Map(tasks.map((t) => [`${t.userId}|${t.date.toISOString().slice(0, 10)}`, t._count._all]));
+  const taskCount = new Map<string, number>(); // finished and approved (the existing "Tasks completed")
+  const taskApproved = new Map<string, number>(); // approved by a manager
+  const taskPlanned = new Map<string, number>(); // planned for the day: approved or still waiting for approval
+  const bump = (m: Map<string, number>, k: string, n: number) => m.set(k, (m.get(k) ?? 0) + n);
+  for (const t of tasks) {
+    const k = `${t.userId}|${t.date.toISOString().slice(0, 10)}`;
+    const n = t._count._all;
+    const approval = String(t.approvalStatus);
+    if (approval === "APPROVED") {
+      bump(taskApproved, k, n);
+      if (String(t.status) === "COMPLETED") bump(taskCount, k, n);
+    }
+    if (approval === "APPROVED" || approval === "PENDING") bump(taskPlanned, k, n); // rejected proposals were never planned work
+  }
   const byId = new Map(chosen.map((c) => [c.id, c]));
 
   // Sessions still running today. The engine decides present/half/absent by hours worked, which is right for a
@@ -449,6 +476,9 @@ export async function getAttendanceReport(
         lateMinutes: hasWork ? d.lateByMinutes : null,
         earlyDepartureMinutes: earlyMinutes,
         tasksCompleted: taskCount.get(`${month.userId}|${d.date}`) ?? 0,
+        // null (blank in the export) when the person had no tasks that day: nothing is assumed
+        tasksPlanned: taskPlanned.get(`${month.userId}|${d.date}`) ?? null,
+        tasksApproved: taskPlanned.has(`${month.userId}|${d.date}`) ? taskApproved.get(`${month.userId}|${d.date}`) ?? 0 : null,
       });
     }
   }

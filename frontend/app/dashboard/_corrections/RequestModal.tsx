@@ -75,6 +75,18 @@ export default function RequestCorrectionModal({ date, onClose, onDone }: { date
   const needsLogout = type === "MISSING_CHECKOUT";
   const overnight = login !== "" && logout !== "" && logout < login;
   const invalid = !day || reason.trim().length < 5 || (!login && !logout) || (needsLogin && !login) || (needsLogout && !logout);
+  // The first thing still missing, in plain words, so a greyed-out button always says why.
+  const whyNot = !day
+    ? "Choose the date."
+    : needsLogin && !login
+      ? "Enter the correct check-in time."
+      : needsLogout && !logout
+        ? "Enter the correct check-out time."
+        : !login && !logout
+          ? "Enter the correct check-in or check-out time."
+          : reason.trim().length < 5
+            ? `Add a reason (at least 5 characters, you have ${reason.trim().length}).`
+            : "";
 
   async function submit() {
     if (busy || invalid) return;
@@ -105,7 +117,8 @@ export default function RequestCorrectionModal({ date, onClose, onDone }: { date
       onClose={onClose}
       width="max-w-lg"
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-end gap-2">
+          {whyNot && !busy && <p className="mr-auto text-xs text-amber-700" role="status">{whyNot}</p>}
           <button onClick={onClose} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Close</button>
           <button disabled={busy || invalid} onClick={submit} className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
             {busy ? "Sending…" : "Send request"}
@@ -152,15 +165,19 @@ export default function RequestCorrectionModal({ date, onClose, onDone }: { date
           </label>
         </div>
         {overnight && (
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={nextDay} onChange={(e) => setNextDay(e.target.checked)} /> The check-out was after midnight (the next day)
-          </label>
+          <div>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={nextDay} onChange={(e) => setNextDay(e.target.checked)} /> The check-out was after midnight (the next day)
+            </label>
+            {!nextDay && <p className="mt-1 text-xs text-amber-700">The check-out time is earlier than the check-in. Tick the box if it was the next day; otherwise change the times, or the request will be refused.</p>}
+          </div>
         )}
         <p className="-mt-2 text-xs text-slate-400">Times are in your company&apos;s timezone ({tz}). Fill in only what needs changing. Leave the other blank.</p>
 
         <label className="block text-sm text-slate-600">
           Reason
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={3} className={input} placeholder="What happened? For example: the biometric machine did not scan me in." />
+          <span className={`mt-1 block text-xs ${reason.trim().length < 5 ? "text-amber-700" : "text-slate-400"}`}>{reason.trim().length}/500 · at least 5 characters</span>
         </label>
         <label className="block text-sm text-slate-600">
           Supporting evidence (optional)

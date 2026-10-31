@@ -3,6 +3,69 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { formatTime, isoDaysAgo } from "@/lib/time";
+import { Modal } from "../_employees/Modal";
+
+type DayTask = {
+  id: string; title: string; description: string | null; weight: string; status: string; approvalStatus: string; outcome: string | null;
+  completionNote: string | null; reviewNote: string | null; rejectionNote: string | null; project: string | null; assigned: boolean;
+};
+type DayData = { date: string; score: { percent: number | null; earned?: number; total?: number } & Record<string, unknown>; tasks: DayTask[] };
+
+const WEIGHT_LABEL: Record<string, string> = { LOW: "Low", MEDIUM: "Medium", HIGH: "High", CRITICAL: "Urgent" };
+
+// What happened to this task, in plain words.
+function taskState(t: DayTask): { label: string; tone: string } {
+  if (t.approvalStatus === "REJECTED") return { label: "Not approved", tone: "bg-red-50 text-red-700" };
+  if (t.approvalStatus === "PENDING") return { label: "Waiting for approval", tone: "bg-amber-50 text-amber-700" };
+  if (t.status === "COMPLETED") {
+    if (t.outcome === "FAILED") return { label: "Not accepted", tone: "bg-red-50 text-red-700" };
+    if (t.outcome === "PARTIALLY_COMPLETED") return { label: "Partly completed", tone: "bg-sky-50 text-sky-700" };
+    if (t.outcome === "COMPLETED") return { label: "Completed", tone: "bg-emerald-50 text-emerald-700" };
+    return { label: "Done, waiting for review", tone: "bg-amber-50 text-amber-700" };
+  }
+  if (t.status === "CANCELLED") return { label: "Cancelled", tone: "bg-slate-100 text-slate-600" };
+  return { label: t.status === "IN_PROGRESS" ? "In progress" : "To do", tone: "bg-indigo-50 text-indigo-700" };
+}
+
+// The tasks the person had on one earlier day (their own only).
+function DayTasksModal({ date, onClose }: { date: string; onClose: () => void }) {
+  const [res, setRes] = useState<{ date: string; data?: DayData; error?: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    apiGet<DayData>(`/tasks/day?date=${date}`)
+      .then((data) => live && setRes({ date, data }))
+      .catch((e: Error) => live && setRes({ date, error: e.message }));
+    return () => { live = false; };
+  }, [date]);
+  const current = res && res.date === date ? res : null;
+  const title = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return (
+    <Modal title={`Tasks on ${title}`} subtitle={current?.data ? `${current.data.tasks.length} task${current.data.tasks.length === 1 ? "" : "s"}${current.data.score.percent !== null ? ` · score ${current.data.score.percent}%` : ""}` : undefined} onClose={onClose} width="max-w-2xl">
+      {!current && <div className="skeleton h-32" aria-busy="true" />}
+      {current?.error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{current.error}</p>}
+      {current?.data && current.data.tasks.length === 0 && <p className="rounded-xl bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">No tasks were recorded on this day.</p>}
+      <ul className="space-y-3">
+        {current?.data?.tasks.map((t) => {
+          const s = taskState(t);
+          return (
+            <li key={t.id} className="rounded-2xl border border-indigo-100 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="font-medium text-slate-900">{t.title}</p>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${s.tone}`}>{s.label}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                {WEIGHT_LABEL[t.weight] ?? t.weight} priority{t.project ? ` · ${t.project}` : ""}{t.assigned ? " · assigned by your manager" : ""}
+              </p>
+              {t.description && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{t.description}</p>}
+              {t.completionNote && <p className="mt-2 text-sm text-slate-600"><span className="font-medium text-slate-700">Your note: </span>{t.completionNote}</p>}
+              {(t.reviewNote || t.rejectionNote) && <p className="mt-1 text-sm text-slate-600"><span className="font-medium text-slate-700">Manager&apos;s comment: </span>{t.reviewNote || t.rejectionNote}</p>}
+            </li>
+          );
+        })}
+      </ul>
+    </Modal>
+  );
+}
 
 type Row = {
   date: string;
@@ -16,6 +79,7 @@ type Row = {
   meetingCount: number;
   wasLateLogin: boolean;
   lateByMinutes: number;
+  lateRemark?: string | null;
   autoClosed: boolean;
   onLeave: boolean;
   leaveType: string | null;
@@ -54,6 +118,7 @@ export default function HistoryPage() {
   const [from, setFrom] = useState(isoDaysAgo(29));
   const [to, setTo] = useState(isoDaysAgo(0));
   const [error, setError] = useState("");
+  const [openDay, setOpenDay] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -218,16 +283,25 @@ export default function HistoryPage() {
                   return (
                     <tr key={r.date} className="hover:bg-indigo-50/60/60">
                       <td className="px-5 py-3">
-                        <p className="text-slate-900 font-medium">
+                        <button
+                          onClick={() => setOpenDay(r.date)}
+                          title="See the tasks for this day"
+                          className="text-left font-medium text-indigo-700 underline-offset-2 hover:underline"
+                        >
                           {new Date(`${r.date}T00:00:00Z`).toLocaleDateString(
                             "en-IN",
                             { day: "numeric", month: "short", weekday: "short" }
                           )}
-                        </p>
+                        </button>
                         <div className="flex gap-1.5 mt-0.5">
                           {r.onLeave && (
                             <span className="text-xs text-sky-600">
                               on leave
+                            </span>
+                          )}
+                          {r.wasLateLogin && r.lateRemark && (
+                            <span className="text-xs text-amber-700" title={r.lateRemark}>
+                              late remark: {r.lateRemark.length > 50 ? r.lateRemark.slice(0, 50) + "…" : r.lateRemark}
                             </span>
                           )}
                           {r.autoClosed && (
@@ -304,6 +378,7 @@ export default function HistoryPage() {
           </div>
         </>
       )}
+      {openDay && <DayTasksModal date={openDay} onClose={() => setOpenDay(null)} />}
     </div>
   );
 }

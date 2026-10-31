@@ -164,6 +164,7 @@ export default function CandidatesPage() {
     }
   }
   async function review(docId: string, approve: boolean, why?: string) {
+    if (!docId) return; // nothing was uploaded for this row, so there is nothing to review
     setBusy(true);
     setError("");
     setNotice("");
@@ -390,7 +391,7 @@ export default function CandidatesPage() {
                                 </div>
 
                                 <div className="flex shrink-0 items-center gap-2">
-                                  {d.fileName && (
+                                  {d.fileName && d.id && (
                                     <a
                                       href="#" onClick={(e) => { e.preventDefault(); void viewDocument(d.id); }}
                                       target="_blank"
@@ -425,7 +426,9 @@ export default function CandidatesPage() {
                                 </div>
                               </div>
 
-                              {rejecting === d.id && (
+                              {/* Only a submitted document can be sent back. A document nobody has uploaded has
+                                  id null, and null === null (the idle state) used to open this box on every such row. */}
+                              {canReview && rejecting !== null && rejecting === d.id && (
                                 <div className="mt-3 flex flex-wrap gap-2">
                                   <input
                                     value={reason}
