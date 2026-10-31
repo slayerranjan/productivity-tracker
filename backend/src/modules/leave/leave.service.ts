@@ -1,11 +1,14 @@
 import { prisma } from "../../lib/prisma.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { auditNote } from "../../lib/auditContext.js";
+import { viewerIsOwner } from "../../lib/owner.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 
 // ---------------------------------------------------------------------------
 // LEAVE REQUESTS
 //
-// Employee asks -> HR/Admin of the SAME company approves or rejects.
+// Employee asks -> HR/Admin of the SAME company approves or rejects. Exception by design: an owner (OWNER_CODES) who is HR/Admin
+// handles every company's requests (a deployment pinned to one company switches that off).
 // A request on its own changes nothing in reports. Only when it is approved do
 // we write one leave_days row per working day, and from then on Reports and
 // the live dashboard treat those days as leave (not absence).
@@ -74,10 +77,10 @@ function emptyTaken(): Taken {
 }
 
 // Leave per person for a calendar year, by type. Half days count 0.5.
-async function takenByUser(platformId: string, year: number, userIds?: string[]) {
+async function takenByUser(platformId: string | undefined, year: number, userIds?: string[]) {
   const rows = await prisma.leaveDay.findMany({
     where: {
-      platformId,
+      ...(platformId ? { platformId } : {}),
       date: { gte: new Date(Date.UTC(year, 0, 1)), lte: new Date(Date.UTC(year, 11, 31)) },
       ...(userIds ? { userId: { in: userIds } } : {}),
     },
@@ -220,20 +223,25 @@ export async function cancelRequest(userId: string, requestId: string) {
 async function decider(viewerId: string) {
   const v = await who(viewerId);
   if (!DECIDERS.includes(v.role)) throw new Error("NOT_ALLOWED");
-  return v;
+  const owner = (await viewerIsOwner(viewerId)) && !(await getPinnedCompany());
+  return { ...v, owner };
 }
+
+// Which companies the decider may see: their own, or all of them for an owner.
+const scopeOf = (v: { owner: boolean; platformId: string }) => (v.owner ? {} : { platformId: v.platformId });
+const takenScope = (v: { owner: boolean; platformId: string }) => (v.owner ? undefined : v.platformId);
 
 export async function listRequests(viewerId: string, status?: unknown) {
   const v = await decider(viewerId);
   const wanted = (["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const).find((s) => s === status);
   const rows = await prisma.leaveRequest.findMany({
-    where: { platformId: v.platformId, ...(wanted ? { status: wanted } : {}) },
+    where: { ...scopeOf(v), ...(wanted ? { status: wanted } : {}) },
     orderBy: [{ createdAt: "desc" }],
     take: 300,
     include: { user: { select: personSelect }, decidedBy: deciderSelect },
   });
   const year = platformToday(v.timezone).getUTCFullYear();
-  const taken = await takenByUser(v.platformId, year, [...new Set(rows.map((r) => r.userId))]);
+  const taken = await takenByUser(takenScope(v), year, [...new Set(rows.map((r) => r.userId))]);
   return {
     year,
     requests: rows.map((r) => ({
@@ -254,7 +262,7 @@ export async function decideRequest(viewerId: string, requestId: string, decisio
   if (decision !== "APPROVE" && decision !== "REJECT") throw new Error("BAD_DECISION");
   const text = String(note ?? "").trim().slice(0, 500) || null;
 
-  const r = await prisma.leaveRequest.findFirst({ where: { id: requestId, platformId: v.platformId } });
+  const r = await prisma.leaveRequest.findFirst({ where: { id: requestId, ...scopeOf(v) } });
   if (!r) throw new Error("NOT_FOUND");
   if (r.userId === v.id) throw new Error("OWN_REQUEST");
   if (r.status !== "PENDING") throw new Error("ALREADY_DECIDED");
@@ -273,7 +281,7 @@ export async function decideRequest(viewerId: string, requestId: string, decisio
   // request), then flip the status and write the days in ONE transaction so a
   // request can never be approved without its days.
   const requester = await who(r.userId);
-  const dates = await workingDates(v.platformId, requester.workingDays, r.fromDate, r.toDate);
+  const dates = await workingDates(r.platformId, requester.workingDays, r.fromDate, r.toDate);
 
   await prisma.$transaction(async (tx) => {
     const res = await tx.leaveRequest.updateMany({
@@ -299,7 +307,7 @@ export async function decideRequest(viewerId: string, requestId: string, decisio
       await tx.leaveDay.upsert({
         where: { userId_date: { userId: r.userId, date } },
         update: data,
-        create: { platformId: v.platformId, userId: r.userId, date, ...data },
+        create: { platformId: r.platformId, userId: r.userId, date, ...data },
       });
     }
   });
@@ -313,14 +321,14 @@ export async function leaveSummary(viewerId: string, yearParam?: unknown) {
   const year = parseYear(yearParam, v.timezone);
   const [people, taken, pending] = await Promise.all([
     prisma.user.findMany({
-      where: { platformId: v.platformId, status: { not: "EXITED" } },
+      where: { ...scopeOf(v), status: { not: "EXITED" } },
       select: personSelect,
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
-    takenByUser(v.platformId, year),
+    takenByUser(takenScope(v), year),
     prisma.leaveRequest.groupBy({
       by: ["userId"],
-      where: { platformId: v.platformId, status: "PENDING" },
+      where: { ...scopeOf(v), status: "PENDING" },
       _count: true,
     }),
   ]);
@@ -345,8 +353,8 @@ export async function personLeave(viewerId: string, personId: string, yearParam?
   const yStart = new Date(Date.UTC(year, 0, 1));
   const yEnd = new Date(Date.UTC(year, 11, 31));
   const person = await prisma.user.findFirst({
-    where: { id: personId, platformId: v.platformId },
-    select: personSelect,
+    where: { id: personId, ...scopeOf(v) },
+    select: { ...personSelect, platformId: true },
   });
   if (!person) throw new Error("NOT_FOUND");
   const [requests, days, taken] = await Promise.all([
@@ -356,11 +364,11 @@ export async function personLeave(viewerId: string, personId: string, yearParam?
       include: { decidedBy: deciderSelect },
     }),
     prisma.leaveDay.findMany({
-      where: { userId: personId, platformId: v.platformId, date: { gte: yStart, lte: yEnd } },
+      where: { userId: personId, platformId: person.platformId, date: { gte: yStart, lte: yEnd } },
       orderBy: { date: "desc" },
       select: { date: true, leaveType: true, isHalfDay: true, leaveRequestId: true },
     }),
-    takenByUser(v.platformId, year, [personId]),
+    takenByUser(person.platformId, year, [personId]),
   ]);
   return {
     year,
