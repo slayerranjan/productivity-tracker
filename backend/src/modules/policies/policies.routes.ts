@@ -72,8 +72,19 @@ const versionNo = (req: Request) => {
 
 router.use(requireAuth);
 
+// An owner HR/Admin can manage another company's policies by adding `?company=<id>` to a request. The service re-checks on every
+// request that the person really is an owner HR/Admin; anyone else gets a 403.
+router.use((req, res, next) => {
+  const raw = req.query.company;
+  if (raw === undefined) return next();
+  const id = typeof raw === "string" ? raw : "";
+  if (!UUID.test(id)) return fail(res, new Error("NOT_FOUND"));
+  return policies.withActingCompany(id, () => next());
+});
+
 // --- Everyone (employees see only published policies meant for them; HR/Admin see their company's) ---
 router.get("/", run((req) => policies.listMine(uid(req))));
+router.get("/companies", run((req) => policies.listCompanies(uid(req))));
 router.get("/history", run((req) => policies.history(uid(req))));
 
 // --- HR / Admin: fixed paths first, so they are never read as an :id ---

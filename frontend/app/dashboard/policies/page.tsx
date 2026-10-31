@@ -6,7 +6,7 @@ import { useMe } from "../layout";
 import ReadTab from "./_components/ReadTab";
 import ManageTab from "./_components/ManageTab";
 import TrackingTab from "./_components/TrackingTab";
-import { useFallbackPoll } from "./_lib";
+import { CompanyContext, useApi, useFallbackPoll } from "./_lib";
 
 // ---------------------------------------------------------------------------
 // POLICIES & INDUCTION
@@ -25,6 +25,11 @@ export default function PoliciesPage() {
   const [reload, setReload] = useState(0);
   const [notice, setNotice] = useState("");
   const bump = useCallback(() => setReload((n) => n + 1), []);
+  // Owner HR/Admin only: manage another company's policies. The server answers { canSwitch: false } for everyone else.
+  const companies = useApi<{ canSwitch: boolean; ownCompanyId: string | null; companies: { id: string; name: string }[] }>(isHr ? "/policies/companies" : null, 0).data;
+  const [chosen, setChosen] = useState<string | null>(null);
+  const acting = companies?.canSwitch && chosen && chosen !== companies.ownCompanyId ? chosen : null;
+  const actingName = acting ? companies?.companies.find((c) => c.id === acting)?.name ?? "another company" : null;
 
   const { connected } = usePolicyRealtime(bump);
   useFallbackPoll(connected, bump);
@@ -55,11 +60,23 @@ export default function PoliciesPage() {
         </div>
       )}
 
+      {companies?.canSwitch && tab !== "read" && (
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="pol-company" className="text-sm font-medium text-slate-600">Company</label>
+          <select id="pol-company" value={chosen ?? companies.ownCompanyId ?? ""} onChange={(e) => { setChosen(e.target.value); setNotice(""); }} className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-700">
+            {companies.companies.map((c) => <option key={c.id} value={c.id}>{c.name}{c.id === companies.ownCompanyId ? " (yours)" : ""}</option>)}
+          </select>
+          {actingName && <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">You are managing {actingName}&apos;s policies, not your own company&apos;s.</p>}
+        </div>
+      )}
+
       {notice && <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status">{notice}</p>}
 
       {tab === "read" && <ReadTab reload={reload} />}
-      {tab === "manage" && isHr && <ManageTab reload={reload} bump={bump} setNotice={setNotice} />}
-      {tab === "tracking" && isHr && <TrackingTab reload={reload} />}
+      <CompanyContext.Provider value={acting}>
+        {tab === "manage" && isHr && <ManageTab reload={reload} bump={bump} setNotice={setNotice} />}
+        {tab === "tracking" && isHr && <TrackingTab reload={reload} />}
+      </CompanyContext.Provider>
     </div>
   );
 }

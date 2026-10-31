@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { apiPost } from "@/lib/api";
-import { card, field, fmtDate, STATUS_CHIP, STATUS_LABEL, useApi, type Manage } from "../_lib";
+import { card, field, fmtDate, STATUS_CHIP, STATUS_LABEL, useApi, useCompany, withCompany, type Manage } from "../_lib";
 import PolicyForm from "./PolicyForm";
 
 // HR / Admin: the policy dashboard (counts), a searchable table of every policy, and a place to start a new one.
@@ -21,7 +21,8 @@ function Stat({ label, value, sub, tone }: { label: string; value: number | stri
 
 export default function ManageTab({ reload, bump, setNotice }: { reload: number; bump: () => void; setNotice: (s: string) => void }) {
   const router = useRouter();
-  const { data, error } = useApi<Manage>("/policies/manage", reload);
+  const co = useCompany();
+  const { data, error } = useApi<Manage>(withCompany("/policies/manage", co), reload);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState("");
@@ -39,7 +40,7 @@ export default function ManageTab({ reload, bump, setNotice }: { reload: number;
     setBusy(id);
     setErr("");
     try {
-      await apiPost(`/policies/${id}/${archive ? "archive" : "restore"}`);
+      await apiPost(withCompany(`/policies/${id}/${archive ? "archive" : "restore"}`, co));
       setNotice(archive ? "Policy archived. It stays on record for HR." : "Policy restored.");
       bump();
     } catch (e) {
@@ -98,7 +99,7 @@ export default function ManageTab({ reload, bump, setNotice }: { reload: number;
                 {rows.map((d) => (
                   <tr key={d.id} className="border-t border-indigo-50 align-top">
                     <td className="px-4 py-3">
-                      <Link href={`/dashboard/policies/${d.id}`} className="font-medium text-slate-900 hover:text-indigo-700 hover:underline">{d.title}</Link>
+                      <Link href={withCompany(`/dashboard/policies/${d.id}`, co)} className="font-medium text-slate-900 hover:text-indigo-700 hover:underline">{d.title}</Link>
                       <div className="mt-0.5 flex flex-wrap gap-1.5">
                         {d.openNotes > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">{d.openNotes} review note{d.openNotes === 1 ? "" : "s"} open</span>}
                         {d.hasPendingVersion && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">new version waiting</span>}
@@ -116,7 +117,7 @@ export default function ManageTab({ reload, bump, setNotice }: { reload: number;
                     </td>
                     <td className="px-4 py-3"><span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CHIP[d.status]}`}>{STATUS_LABEL[d.status]}</span></td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <Link href={`/dashboard/policies/${d.id}`} className="rounded-lg border border-indigo-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Open</Link>{" "}
+                      <Link href={withCompany(`/dashboard/policies/${d.id}`, co)} className="rounded-lg border border-indigo-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Open</Link>{" "}
                       {d.status === "ARCHIVED" ? (
                         <button disabled={busy === d.id} onClick={() => toggle(d.id, false)} className="rounded-lg border border-indigo-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Restore</button>
                       ) : (
@@ -132,7 +133,7 @@ export default function ManageTab({ reload, bump, setNotice }: { reload: number;
       </section>
 
       {creating && data && (
-        <PolicyForm mode="create" setup={data} onClose={() => setCreating(false)} onDone={(id, message) => { setCreating(false); setNotice(message); bump(); router.push(`/dashboard/policies/${id}`); }} />
+        <PolicyForm mode="create" setup={data} onClose={() => setCreating(false)} onDone={(id, message) => { setCreating(false); setNotice(message); bump(); router.push(withCompany(`/dashboard/policies/${id}`, co)); }} />
       )}
     </div>
   );

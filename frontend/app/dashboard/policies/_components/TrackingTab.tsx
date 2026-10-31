@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { downloadCsv } from "../../reports/_team/format";
-import { card, field, fmtDateTime, STATUS_CHIP, STATUS_LABEL, useApi, type Tracking } from "../_lib";
+import { card, field, fmtDateTime, STATUS_CHIP, STATUS_LABEL, useApi, useCompany, withCompany, type Tracking } from "../_lib";
 
 // HR / Admin: who has confirmed which policy, who has opened it but not confirmed, and who has not opened it.
 // One row per person per published policy. Filters narrow the list; the CSV is exactly the rows on screen.
@@ -18,6 +18,7 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
 }
 
 export default function TrackingTab({ reload }: { reload: number }) {
+  const co = useCompany();
   const [policyId, setPolicyId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [userId, setUserId] = useState("");
@@ -30,7 +31,7 @@ export default function TrackingTab({ reload }: { reload: number }) {
   if (userId) qs.set("userId", userId);
   if (status) qs.set("status", status);
   if (search.trim()) qs.set("search", search.trim());
-  const { data, error } = useApi<Tracking>(`/policies/tracking?${qs.toString()}`, reload);
+  const { data, error } = useApi<Tracking>(withCompany(`/policies/tracking?${qs.toString()}`, co), reload);
 
   function exportCsv() {
     if (!data) return;
@@ -83,7 +84,7 @@ export default function TrackingTab({ reload }: { reload: number }) {
                   <tr key={`${r.userId}|${r.policyId}`} className="border-t border-indigo-50">
                     <td className="px-4 py-2.5"><p className="font-medium text-slate-900">{r.name}</p><p className="text-xs text-slate-400">{r.employeeCode ?? "—"}</p></td>
                     <td className="px-4 py-2.5 text-slate-600">{r.team ?? "—"}</td>
-                    <td className="px-4 py-2.5"><Link href={`/dashboard/policies/${r.policyId}`} className="text-slate-800 hover:text-indigo-700 hover:underline">{r.policyTitle}</Link>{!r.required && <span className="ml-2 text-xs text-slate-400">optional</span>}</td>
+                    <td className="px-4 py-2.5"><Link href={withCompany(`/dashboard/policies/${r.policyId}`, co)} className="text-slate-800 hover:text-indigo-700 hover:underline">{r.policyTitle}</Link>{!r.required && <span className="ml-2 text-xs text-slate-400">optional</span>}</td>
                     <td className="px-4 py-2.5 tabular-nums text-slate-600">{r.versionLabel}</td>
                     <td className="px-4 py-2.5"><span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CHIP[r.status]}`}>{r.status === "PENDING" ? "Not opened" : STATUS_LABEL[r.status]}</span></td>
                     <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">{fmtDateTime(r.acknowledgedAt)}</td>

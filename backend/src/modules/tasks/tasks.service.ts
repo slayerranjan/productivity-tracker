@@ -723,6 +723,9 @@ export async function assignTask(
 
   const targetUserId = String(body.userId ?? "");
   if (!targetUserId) throw new Error("USER_REQUIRED");
+  // A manager's tasks are his own: nobody (HR, Admin, another manager, an owner, or he himself through this route) assigns work to a manager.
+  const targetRole = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (targetRole && String(targetRole.role) === "MANAGER") throw new Error("MANAGER_TASKS_ARE_PERSONAL");
   await assertCanManage(actor, targetUserId);
 
   const title = String(body.title ?? "").trim();

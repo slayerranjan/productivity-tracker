@@ -5,6 +5,7 @@ import { emitPolicyChange } from "../../lib/realtime.js";
 import { auditNote } from "../../lib/auditContext.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { docxToHtml, viewKind } from "./policies.docs.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { viewerIsOwner } from "../../lib/owner.js";
 import { getPinnedCompany } from "../../lib/deployment.js";
 
@@ -66,7 +67,12 @@ async function requireReady() {
 // --- who is asking ------------------------------------------------------------------------------------------------
 // `actAs`: an OWNER (OWNER_CODES) who is HR/Admin may act inside another company, so one person can run the policies of the companies
 // they look after. Anyone else asking for it is refused; a deployment pinned to one company switches it off.
-async function who(userId: string, actAs?: string) {
+// The company an owner chose to manage for THIS request only (the routes set it from the `company` query value).
+const actingCompany = new AsyncLocalStorage<string>();
+export const withActingCompany = (companyId: string, next: () => void) => actingCompany.run(companyId, next);
+
+async function who(userId: string, actAsArg?: string) {
+  const actAs = actAsArg ?? actingCompany.getStore();
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true, platformId: true, firstName: true, lastName: true, teamMemberships: { where: { isActive: true }, select: { teamId: true } }, platform: { select: { timezone: true } } },
@@ -87,7 +93,7 @@ async function who(userId: string, actAs?: string) {
   } catch {
     /* table may not exist on an old database: no type = matches only audiences that don't ask for one */
   }
-  return { id: u.id, role: String(u.role), platformId, name: `${u.firstName} ${u.lastName}`.trim(), teamIds: u.teamMemberships.map((m) => m.teamId), timezone, employmentType };
+  return { id: u.id, acting: platformId !== u.platformId, role: String(u.role), platformId, name: `${u.firstName} ${u.lastName}`.trim(), teamIds: u.teamMemberships.map((m) => m.teamId), timezone, employmentType };
 }
 type Viewer = Awaited<ReturnType<typeof who>>;
 
@@ -177,7 +183,8 @@ async function findVisible(v: Viewer, id: string) {
   const isStaff = STAFF.includes(v.role);
   const status = statusOf(doc, meta);
   const live = status === "PUBLISHED" && doc.isActive;
-  const mine = live && appliesTo(v, doc, meta.audience.get(doc.id) ?? []);
+  // An owner managing another company is not one of its readers: nothing is recorded as read or confirmed by them there.
+  const mine = !v.acting && live && appliesTo(v, doc, meta.audience.get(doc.id) ?? []);
   if (!isStaff && !mine) throw new Error("NOT_FOUND");
   return { doc, meta, live, mine, status };
 }
@@ -384,6 +391,15 @@ async function categoryNames(platformId: string): Promise<string[]> {
   if (!(await ready())) return [...BUILT_IN_CATEGORIES];
   const custom = await prisma.policyCategory.findMany({ where: { platformId }, orderBy: { name: "asc" } });
   return [...BUILT_IN_CATEGORIES, ...custom.map((c) => c.name)];
+}
+
+// The companies an owner HR/Admin can manage policies for (everyone else: no switcher).
+export async function listCompanies(userId: string) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, platformId: true } });
+  const pinned = await getPinnedCompany();
+  if (!u || !["HR", "ADMIN"].includes(String(u.role)) || pinned || !(await viewerIsOwner(userId))) return { canSwitch: false, ownCompanyId: u?.platformId ?? null, companies: [] as { id: string; name: string }[] };
+  const rows = await prisma.platform.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+  return { canSwitch: true, ownCompanyId: u.platformId, companies: rows };
 }
 
 export async function listCategories(viewerId: string) {

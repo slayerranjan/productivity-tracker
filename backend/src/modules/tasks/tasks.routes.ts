@@ -19,6 +19,7 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   NOT_FOUND: { status: 404, message: "That task doesn't exist." },
   FORBIDDEN: { status: 403, message: "Only managers can do that." },
   NOT_YOUR_TEAM: { status: 403, message: "That person isn't in your team." },
+  MANAGER_TASKS_ARE_PERSONAL: { status: 403, message: "A manager's tasks are their own. Tasks can't be assigned to a manager." },
   MISSING_FIELDS: { status: 400, message: "A title is required." },
   BAD_STATUS: { status: 400, message: "That isn't a valid status." },
   BAD_OUTCOME: { status: 400, message: "Pick completed, partial or failed." },
