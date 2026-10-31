@@ -4,6 +4,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Bell from "./_notifications/Bell";
 import { NotificationsProvider } from "./_notifications/NotificationsContext";
+import { ThemeProvider } from "./_theme/ThemeContext";
+import { ThemeIconButton, ThemeRow } from "./_theme/ThemeToggle";
+import { resetTheme } from "@/lib/theme";
 import Link from "next/link";
 import { apiGet, clearToken, getToken } from "@/lib/api";
 import { setPlatformTimezone } from "@/lib/time";
@@ -109,6 +112,85 @@ const I = {
       <path d="M5 10.5h.01M15 10.5h.01" strokeLinecap="round" />
     </svg>
   ),
+  edit: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M3.5 16.5h3l9-9a2.1 2.1 0 0 0-3-3l-9 9v3Z" />
+      <path d="M11 6l3 3" />
+    </svg>
+  ),
+  shield: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M10 2.8 4 5v4.6c0 3.6 2.4 6 6 7.6 3.6-1.6 6-4 6-7.6V5l-6-2.2Z" />
+      <path d="m7.4 10 1.8 1.8 3.4-3.6" />
+    </svg>
+  ),
+  folder: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M2.8 6.2a1.6 1.6 0 0 1 1.6-1.6h3.2l1.6 1.8h5.6a1.6 1.6 0 0 1 1.6 1.6v6.2a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V6.2Z" />
+    </svg>
+  ),
+  user: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="10" cy="7" r="3" />
+      <path d="M4 16.5c.4-2.9 2.8-4.5 6-4.5s5.6 1.6 6 4.5" />
+    </svg>
+  ),
+  mail: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="2.8" y="4.5" width="14.4" height="11" rx="1.8" />
+      <path d="m3.4 6 6.6 5 6.6-5" />
+    </svg>
+  ),
+  video: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="2.5" y="5.5" width="10" height="9" rx="1.8" />
+      <path d="m12.5 9 5-2.6v7.2L12.5 11" />
+    </svg>
+  ),
+  huddle: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="10" cy="5.5" r="2" />
+      <circle cx="4.6" cy="13.4" r="1.9" />
+      <circle cx="15.4" cy="13.4" r="1.9" />
+      <path d="M8.3 7.2 5.6 11.6M11.7 7.2l2.7 4.4M6.6 15.4h6.8" />
+    </svg>
+  ),
+  building: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="4.2" y="2.8" width="11.6" height="14.4" rx="1.4" />
+      <path d="M7.5 6.5h.01M10 6.5h.01M12.5 6.5h.01M7.5 9.5h.01M10 9.5h.01M12.5 9.5h.01M8.5 17.2v-3.2h3v3.2" />
+    </svg>
+  ),
+  list: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M6.5 5.5h10M6.5 10h10M6.5 14.5h10" />
+      <path d="M3.4 5.5h.01M3.4 10h.01M3.4 14.5h.01" />
+    </svg>
+  ),
+  receipt: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M5 2.8h10v14.4l-2.5-1.5-2.5 1.5-2.5-1.5L5 17.2V2.8Z" />
+      <path d="M7.8 7h4.4M7.8 10.2h4.4" />
+    </svg>
+  ),
+  trend: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="m2.8 14 4.4-4.6 3 3L17 5.4" />
+      <path d="M12.6 5.4H17V9.8" />
+    </svg>
+  ),
+  userplus: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="8" cy="7" r="2.8" />
+      <path d="M2.8 16.5c.4-2.9 2.4-4.4 5.2-4.4" />
+      <path d="M15 8v5M12.5 10.5h5" />
+    </svg>
+  ),
+  pulse: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M2.5 10h3.2l2-5.2 3.4 10.4 2.2-5.2h4.2" />
+    </svg>
+  ),
   admin: (p: IconProps) => (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...p}>
       <circle cx="10" cy="10" r="2.4" />
@@ -140,8 +222,8 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard", label: "Dashboard", ready: true, roles: ["HR", "ADMIN"], icon: I.grid },
       { href: "/dashboard", label: "Today", ready: true, notRoles: ["HR", "ADMIN"], icon: I.today },
       { href: "/dashboard/admin", label: "Employees", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
-      { href: "/dashboard/team-attendance", label: "Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.holidays },
-      { href: "/dashboard/corrections", label: "Corrections", ready: true, roles: ["HR", "ADMIN"], badge: "corrections", icon: I.history },
+      { href: "/dashboard/team-attendance", label: "Attendance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.pulse },
+      { href: "/dashboard/corrections", label: "Corrections", ready: true, roles: ["HR", "ADMIN"], badge: "corrections", icon: I.edit },
       { href: "/dashboard/today", label: "Productivity Tracker", ready: true, roles: ["HR", "ADMIN"], icon: I.today },
       { href: "/dashboard/approvals", label: "Tasks & Performance", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.approvals },
       { href: "/dashboard/reports", label: "Reports & Analytics", ready: true, roles: ["MANAGER", "HR", "ADMIN"], icon: I.reports },
@@ -152,15 +234,17 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/dashboard/tasks", label: "Daily Tasks", ready: true, icon: I.tasks },
       { href: "/dashboard/history", label: "My History", ready: true, icon: I.history },
+      { href: "/dashboard/my-performance", label: "My performance", ready: true, roles: ["MANAGER"], icon: I.trend },
+      { href: "/dashboard/huddles", label: "Team Huddle", ready: true, roles: ["MANAGER"], icon: I.huddle },
       { href: "/dashboard/notifications", label: "Notifications", ready: true, icon: I.bell },
-      { href: "/dashboard/corrections", label: "Corrections", ready: true, notRoles: ["HR", "ADMIN"], icon: I.approvals },
+      { href: "/dashboard/corrections", label: "Corrections", ready: true, notRoles: ["HR", "ADMIN"], icon: I.edit },
       { href: "/dashboard/leave", label: "Leave", ready: true, icon: I.holidays },
-      { href: "/dashboard/documents", label: "Documents", ready: true, icon: I.payslip },
-      { href: "/dashboard/meetings", label: "Meetings", ready: true, icon: I.team },
-      { href: "/dashboard/policies", label: "Policies", ready: true, icon: I.approvals },
-      { href: "/dashboard/payslips", label: "My Payslips", ready: true, icon: I.payslip },
+      { href: "/dashboard/documents", label: "Documents", ready: true, icon: I.folder },
+      { href: "/dashboard/meetings", label: "Meetings", ready: true, icon: I.video },
+      { href: "/dashboard/policies", label: "Policies", ready: true, icon: I.shield },
+      { href: "/dashboard/payslips", label: "My Payslips", ready: true, icon: I.receipt },
       { href: "/dashboard/tickets", label: "Tickets", ready: true, icon: I.ticket },
-      { href: "/dashboard/profile", label: "My Profile", ready: true, icon: I.payslip },
+      { href: "/dashboard/profile", label: "My Profile", ready: true, icon: I.user },
       { href: "/change-password", label: "Change password", ready: true, icon: I.admin },
     ],
   },
@@ -170,16 +254,16 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     // this is HR clearing documents. Same word, different job.
     title: "Hiring",
     items: [
-      { href: "/dashboard/candidates", label: "Joiners", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
-      { href: "/dashboard/offers", label: "Offer letters", ready: true, roles: ["HR", "ADMIN"], icon: I.payslip },
+      { href: "/dashboard/candidates", label: "Joiners", ready: true, roles: ["HR", "ADMIN"], icon: I.userplus },
+      { href: "/dashboard/offers", label: "Offer letters", ready: true, roles: ["HR", "ADMIN"], icon: I.mail },
     ],
   },
   {
     title: "Settings",
     items: [
       { href: "/dashboard/projects", label: "Projects", ready: true, roles: ["HR", "ADMIN"], icon: I.tasks },
-      { href: "/dashboard/companies", label: "Companies", ready: true, roles: ["HR", "ADMIN"], icon: I.team },
-      { href: "/dashboard/audit-logs", label: "Audit log", ready: true, roles: ["HR", "ADMIN"], icon: I.reports },
+      { href: "/dashboard/companies", label: "Companies", ready: true, roles: ["HR", "ADMIN"], icon: I.building },
+      { href: "/dashboard/audit-logs", label: "Audit log", ready: true, roles: ["HR", "ADMIN"], icon: I.list },
       { href: "/dashboard/holidays", label: "Holidays", ready: true, roles: ["HR", "ADMIN"], icon: I.holidays },
       { href: "/dashboard/payroll", label: "Payroll", ready: true, roles: ["HR", "ADMIN"], icon: I.payroll },
       { href: "/dashboard/admin?tab=Teams", label: "Teams, shifts & rules", ready: true, roles: ["ADMIN", "HR"], icon: I.admin },
@@ -276,6 +360,7 @@ export default function DashboardLayout({
 
   function signOut() {
     clearToken();
+    resetTheme(); // the next person on this computer starts in light until their own choice loads
     router.replace("/login");
   }
 
@@ -434,6 +519,7 @@ export default function DashboardLayout({
             </div>
           </div>
         </div>
+        <ThemeRow />
         <button
           onClick={signOut}
           className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-[var(--nav-text)] hover:bg-[var(--nav-hover)] hover:text-slate-900"
@@ -450,6 +536,7 @@ export default function DashboardLayout({
 
   return (
     <MeContext.Provider value={me}>
+      <ThemeProvider>
       <NotificationsProvider>
       <div className="flex min-h-screen bg-[var(--background)]">
         {/* Desktop */}
@@ -484,13 +571,14 @@ export default function DashboardLayout({
             <p className="truncate text-sm font-semibold text-slate-900">
               Avatar HRMS <span className="font-normal text-slate-400">· {me.platform.name}</span>
             </p>
-            <div className="ml-auto shrink-0"><Bell /></div>
+            <div className="ml-auto flex shrink-0 items-center gap-0.5"><ThemeIconButton /><Bell /></div>
           </header>
 
           <div className="animate-in">{children}</div>
         </div>
       </div>
       </NotificationsProvider>
+      </ThemeProvider>
     </MeContext.Provider>
   );
 }

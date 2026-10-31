@@ -63,6 +63,17 @@ const add = (s, n) => new Date(new Date(s + "T00:00:00Z").getTime() + n * 864e5)
   ok("the invitation notification is reused and mentions the button", /I'm in the Meeting/.test(notif[0]?.body ?? ""), notif);
   const untracked = await call("POST", "/meetings", O.tok, { title: "Plain meeting", date: add(today, 1), startTime: "11:00", endTime: "11:30", attendeeIds: [A.id], meetingUrl: "https://meet.google.com/abc-defg-hij" });
   ok("an ordinary meeting is not tracked", (await q(`select 1 from meeting_tracking where "meetingId"=$1`, [untracked.b.id])).length === 0);
+  // an organizer who scheduled an ordinary meeting can turn it into an in-person one (his own meeting, not ended)
+  const upgradeMe = await call("POST", "/meetings", O.tok, { title: "Ordinary, will become in-person", date: add(today, 1), startTime: "12:00", endTime: "12:30", attendeeIds: [A.id], meetingUrl: "https://meet.google.com/abc-defg-hij" });
+  ok("an employee cannot switch tracking on for someone else's meeting -> 403/404", [403, 404].includes((await call("PATCH", `/meetings/${upgradeMe.b.id}`, A.tok, { inPerson: true })).s));
+  ok("another manager cannot either -> 404", (await call("PATCH", `/meetings/${upgradeMe.b.id}`, O2.tok, { inPerson: true })).s === 404);
+  ok("late minutes out of range -> 400", (await call("PATCH", `/meetings/${upgradeMe.b.id}`, O.tok, { inPerson: true, lateAfterMinutes: 999 })).s === 400);
+  const upg = await call("PATCH", `/meetings/${upgradeMe.b.id}`, O.tok, { inPerson: true, lateAfterMinutes: 10 });
+  ok("the organizer turns an ordinary meeting into an in-person one", upg.s === 200 && (await q(`select "lateAfterMinutes" from meeting_tracking where "meetingId"=$1`, [upgradeMe.b.id]))[0]?.lateAfterMinutes === 10, upg);
+  ok("...its link is removed", (await q(`select "meetingUrl" from meetings where id=$1`, [upgradeMe.b.id]))[0].meetingUrl === null);
+  ok("...the invited people are told it is now in person", (await q(`select 1 from notifications where "userId"=$1 and type='MEETING_UPDATED' and body like '%in-person%'`, [A.id])).length >= 1);
+  ok("...and it shows up as tracked for the invitee", ((await call("GET", "/meetings?scope=upcoming", A.tok)).b.meetings.find((m) => m.id === upgradeMe.b.id) ?? {}).tracked === true);
+  ok("asking again changes nothing and does not break it", (await call("PATCH", `/meetings/${upgradeMe.b.id}`, O.tok, { inPerson: true })).s === 200 && (await q(`select count(*)::int c from meeting_tracking where "meetingId"=$1`, [upgradeMe.b.id]))[0].c === 1);
   ok("the invitee sees it as tracked, with their own state and the window", (await (async () => { const l = (await call("GET", "/meetings?scope=upcoming", A.tok)).b.meetings.find((m) => m.id === mid); return l?.tracked === true && l.me?.state === "NOT_JOINED" && l.joinWindow && l.lateAfterMinutes === 5; })()));
 
   console.log("\n## 2. The join window (15 minutes before the start until the expected end)");
@@ -95,7 +106,7 @@ const add = (s, n) => new Date(new Date(s + "T00:00:00Z").getTime() + n * 864e5)
 
   console.log("\n## 4. Who can and cannot join");
   ok("someone not invited -> 404", (await call("POST", `/meetings/${mid2}/join`, D.tok)).s === 404);
-  ok("the organizer cannot join as an invitee -> 404", (await call("POST", `/meetings/${mid2}/join`, O.tok)).s === 404);
+  ok("a manager who is NOT the organizer cannot join -> 404", (await call("POST", `/meetings/${mid2}/join`, O2.tok)).s === 404);
   ok("HR / Admin who are not invited -> 404", (await call("POST", `/meetings/${mid2}/join`, H.tok)).s === 404 && (await call("POST", `/meetings/${mid2}/join`, AD.tok)).s === 404);
   ok("another company -> 404", (await call("POST", `/meetings/${mid2}/join`, XE.tok)).s === 404);
   ok("an untracked meeting -> 409", (await call("POST", `/meetings/${untracked.b.id}/join`, A.tok)).s === 409);
@@ -154,6 +165,25 @@ const add = (s, n) => new Date(new Date(s + "T00:00:00Z").getTime() + n * 864e5)
   ok("the HR overview shows the counts for the meeting", ovRow?.participation?.invited === 3 && ovRow.participation.joined === 2, ovRow);
   ok("...and the HR overview mentions no employee names or times", !/Mpt|T[ABC]\b|joinedAt|leftAt|durationSeconds/.test(JSON.stringify(ovRow)), ovRow);
   ok("HR still cannot open the meeting's details", (await call("GET", `/meetings/${mid4}`, H.tok)).s === 404);
+
+  console.log("\n## 8b. The organizer can mark himself in and out too (never counted as an invited person)");
+  const mid7 = (await mkMeeting({ title: "Organizer joins" })).b.id; await place(mid7, -60, 900);
+  await call("POST", `/meetings/${mid7}/join`, A.tok);
+  const oj = await call("POST", `/meetings/${mid7}/join`, O.tok);
+  ok("the organizer joins his own meeting", oj.s === 200 && oj.b.ok === true, oj);
+  ok("a second press by the organizer -> 409 (one join per person, organizer included)", (await call("POST", `/meetings/${mid7}/join`, O.tok)).s === 409);
+  const l7 = await call("GET", `/meetings/${mid7}/participation`, O.tok);
+  ok("his own row is shown apart as the organizer, in the meeting", l7.b.organizer?.state === "IN_MEETING" && !!l7.b.organizer.joinedAt, l7.b.organizer);
+  ok("...and he is NOT counted among the invited people (3 invited, 1 joined, not in the rows)", l7.b.summary.invited === 3 && l7.b.summary.joined === 1 && !l7.b.rows.some((r) => r.userId === O.id), l7.b.summary);
+  ok("HR counts still exclude the organizer", (await call("GET", `/meetings/${mid7}/participation-counts`, H.tok)).b.joined === 1);
+  const ov7 = (await call("GET", "/meetings/oversight?scope=upcoming", H.tok)).b.meetings.find((m) => m.id === mid7);
+  ok("the HR overview counts exclude the organizer and show no names", ov7?.participation?.joined === 1 && ov7.participation.invited === 3 && !/joinedAt|Mpt/.test(JSON.stringify(ov7)), ov7);
+  const mine7 = (await call("GET", "/meetings?scope=upcoming", O.tok)).b.meetings.find((m) => m.id === mid7);
+  ok("his own meeting card knows he is in the meeting, and 'joined' still counts only the invited", mine7?.me?.state === "IN_MEETING" && mine7.joinedCount === 1, mine7);
+  const lv7 = await call("POST", `/meetings/${mid7}/leave`, O.tok);
+  ok("the organizer ends his own participation", lv7.s === 200 && (await stamp(mid7, O.id)).leftAt, lv7);
+  ok("his own history includes the meeting he organized", (await call("GET", "/meetings/participation/history", O.tok)).b.rows.some((r) => r.meetingId === mid7 && r.state === "ENDED"));
+  ok("someone not invited and not the organizer is still refused -> 404", (await call("POST", `/meetings/${mid7}/join`, D.tok)).s === 404);
 
   console.log("\n## 9. Manager corrections (reason required, kept as history)");
   const corr = (target, body) => call("PATCH", `/meetings/${mid4}/participation/${target}`, O.tok, body);

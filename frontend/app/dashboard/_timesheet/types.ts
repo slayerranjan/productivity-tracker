@@ -33,6 +33,11 @@ export type TsSession = {
   shiftStartTime: string | null;
   project?: { id: string; name: string } | null;
   correction?: { at: string; by: string } | null;
+  // The split of this day's productive time (from the server's one shared calculation).
+  breakdown?: {
+    regularSeconds: number; huddleSeconds: number; otherEligibleSeconds: number; totalSeconds: number;
+    huddles: { id: string; meetingId: string; title: string; scheduledStart: string; scheduledEnd: string; joinedAt: string; leftAt: string | null; countedSeconds: number; rawSeconds: number; openPastEnd: boolean; addedByManager: boolean }[];
+  } | null;
   breaks: TsBreak[];
   meetings: TsMeeting[];
 };
@@ -68,6 +73,9 @@ export type Timesheet = {
     productiveSeconds: number;
     breakSeconds: number;
     meetingSeconds: number;
+    huddleSeconds?: number;
+    otherEligibleSeconds?: number;
+    regularSeconds?: number;
     elapsedSeconds: number;
     lateDays: number;
   };

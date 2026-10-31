@@ -1,5 +1,7 @@
 import { prisma } from "../../lib/prisma.js";
-import { localDayOf, zonedToUtc } from "../../lib/dates.js";
+import { localDayOf, parseIsoDay, platformToday, zonedToUtc } from "../../lib/dates.js";
+import { visibleUserIds } from "../tracker/tracker.service.js";
+import { computeBreakdown } from "../tracker/productiveBreakdown.js";
 import { auditNote } from "../../lib/auditContext.js";
 import { notifyUsers } from "../../lib/notify.js";
 import { emitMeetingChange } from "../../lib/realtime.js";
@@ -72,6 +74,19 @@ export async function enableTracking(tx: Tx, o: { meetingId: string; platformId:
   await tx.meetingTracking.create({ data: { meetingId: o.meetingId, platformId: o.platformId, createdById: o.createdById, lateAfterMinutes: o.lateAfterMinutes } });
 }
 
+/** Is participation tracking on for this meeting? (false before the migration) */
+export async function isTracked(meetingId: string): Promise<boolean> {
+  if (!(await participationReady())) return false;
+  return !!(await prisma.meetingTracking.findUnique({ where: { meetingId }, select: { meetingId: true } }));
+}
+
+/** A manager can run huddles only for the people who report to them (teams they run + direct reports). HR/Admin are unrestricted within the company. */
+export async function assertReportingEmployees(organizer: { id: string; role: string; platformId: string }, attendeeIds: string[]) {
+  if (organizer.role !== "MANAGER") return;
+  const allowed = new Set(await visibleUserIds(organizer));
+  if (attendeeIds.some((id) => !allowed.has(id))) throw new Error("NOT_YOUR_REPORT");
+}
+
 export function cleanLateAfter(v: unknown): number {
   if (v === undefined || v === null || v === "") return 5;
   const n = Number(v);
@@ -104,22 +119,21 @@ export async function extrasFor(items: Item[], viewerId: string, now: Date) {
       tracked: true,
       lateAfterMinutes: t.lateAfterMinutes,
       joinWindow: { open: w.open, reason: w.reason, opensAt: w.opensAt, closesAt: w.closesAt },
-      // The viewer's OWN record (an invitee). The organizer has none: they run the meeting.
-      me: it.isOrganizer
-        ? null
-        : p
-          ? {
-              state: L.stateOf(p),
-              joinedAt: p.joinedAt,
-              leftAt: p.leftAt,
-              durationSeconds: p.durationSeconds,
-              late: L.isLate(p.joinedAt, it.startsAt, t.lateAfterMinutes),
-              source: p.source,
-              stillActivePastEnd: L.isStillActivePastEnd(p, it.endsAt, now),
-            }
-          : { state: "NOT_JOINED" as const },
-      canJoin: !it.isOrganizer && !p && it.status === "SCHEDULED" && w.open,
-      joinedCount: it.isOrganizer ? joinedBy.get(t.meetingId) ?? 0 : undefined,
+      // The viewer's OWN record: an invitee, or the organizer (who can also mark himself in the meeting).
+      me: p
+        ? {
+            state: L.stateOf(p),
+            joinedAt: p.joinedAt,
+            leftAt: p.leftAt,
+            durationSeconds: p.durationSeconds,
+            late: L.isLate(p.joinedAt, it.startsAt, t.lateAfterMinutes),
+            source: p.source,
+            stillActivePastEnd: L.isStillActivePastEnd(p, it.endsAt, now),
+          }
+        : { state: "NOT_JOINED" as const },
+      canJoin: !p && it.status === "SCHEDULED" && w.open,
+      // How many INVITED people joined: the organizer's own record is not one of them.
+      joinedCount: it.isOrganizer ? Math.max(0, (joinedBy.get(t.meetingId) ?? 0) - (p ? 1 : 0)) : undefined,
     });
   }
   return out;
@@ -131,9 +145,14 @@ export async function joinedCounts(ids: string[]): Promise<Map<string, number>> 
   if (ids.length === 0 || !(await participationReady())) return out;
   const tracked = await prisma.meetingTracking.findMany({ where: { meetingId: { in: ids } }, select: { meetingId: true } });
   if (tracked.length === 0) return out;
-  const rows = await prisma.meetingParticipation.groupBy({ by: ["meetingId"], where: { meetingId: { in: tracked.map((t) => t.meetingId) } }, _count: { _all: true } });
+  const trackedIds = tracked.map((t) => t.meetingId);
+  const [rows, organizers] = await Promise.all([
+    prisma.meetingParticipation.findMany({ where: { meetingId: { in: trackedIds } }, select: { meetingId: true, userId: true } }),
+    prisma.meeting.findMany({ where: { id: { in: trackedIds } }, select: { id: true, organizerId: true } }),
+  ]);
+  const organizerOf = new Map(organizers.map((o) => [o.id, o.organizerId]));
   for (const t of tracked) out.set(t.meetingId, 0);
-  for (const r of rows) out.set(r.meetingId, r._count._all);
+  for (const r of rows) if (r.userId !== organizerOf.get(r.meetingId)) out.set(r.meetingId, (out.get(r.meetingId) ?? 0) + 1); // the organizer is not an invitee
   return out;
 }
 
@@ -142,9 +161,9 @@ export async function joinedCounts(ids: string[]): Promise<Map<string, number>> 
 export async function join(userId: string, meetingId: string) {
   await requireReady();
   const v = await who(userId);
-  // Not invited = it does not exist as far as this person can tell (same privacy rule as the rest of Meetings).
+  // The organizer or someone invited. Anyone else: it does not exist as far as they can tell (same privacy rule as the rest of Meetings).
   const m = await prisma.meeting.findFirst({
-    where: { id: meetingId, platformId: v.platformId, attendees: { some: { userId } } },
+    where: { id: meetingId, platformId: v.platformId, OR: [{ attendees: { some: { userId } } }, { organizerId: userId }] },
     select: { id: true, title: true, startsAt: true, endsAt: true, status: true, organizerId: true },
   });
   if (!m) throw new Error("NOT_FOUND");
@@ -233,7 +252,20 @@ export async function list(userId: string, meetingId: string) {
   const joined = rows.filter((r) => r.state !== "NOT_JOINED");
   const ended = rows.filter((r) => r.state === "ENDED");
   const span = L.actualSpan(parts, now);
+  const own = pBy.get(userId) ?? null; // the organizer's own record (he can mark himself in and out too); never counted below
+  const ownLate = own ? L.isLate(own.joinedAt, m.startsAt, t.lateAfterMinutes) : false;
   return {
+    organizer: {
+      userId,
+      name: v.name,
+      state: L.stateOf(own),
+      joinedAt: own?.joinedAt ?? null,
+      leftAt: own?.leftAt ?? null,
+      durationSeconds: own?.durationSeconds ?? null,
+      late: ownLate,
+      minutesAfterStart: own && ownLate ? L.minutesAfterStart(own.joinedAt, m.startsAt) : null,
+      stillActivePastEnd: own ? L.isStillActivePastEnd(own, m.endsAt, now) : false,
+    },
     meeting: { id: m.id, title: m.title, startsAt: m.startsAt, endsAt: m.endsAt, status: String(m.status) },
     timezone: v.tz,
     now: now.toISOString(),
@@ -354,12 +386,18 @@ export async function history(userId: string, personId?: string) {
   const person = personId && personId !== userId ? personId : userId;
   if (person !== userId && !CREATORS.includes(v.role)) throw new Error("NOT_ALLOWED");
 
-  const invites = await prisma.meetingAttendee.findMany({
+  const invitesRaw = await prisma.meetingAttendee.findMany({
     where: { userId: person, meeting: { platformId: v.platformId, status: "SCHEDULED", ...(person !== userId ? { organizerId: userId } : {}) } },
     select: { meeting: { select: { id: true, title: true, startsAt: true, endsAt: true } } },
     orderBy: { meeting: { startsAt: "desc" } },
     take: 200,
   });
+  // Your own history also covers meetings you ORGANIZED (you can mark yourself in and out too).
+  const organized = person === userId
+    ? await prisma.meeting.findMany({ where: { platformId: v.platformId, organizerId: userId, status: "SCHEDULED" }, select: { id: true, title: true, startsAt: true, endsAt: true }, orderBy: { startsAt: "desc" }, take: 200 })
+    : [];
+  const seen = new Set(invitesRaw.map((i) => i.meeting.id));
+  const invites = [...invitesRaw, ...organized.filter((o) => !seen.has(o.id)).map((o) => ({ meeting: o }))].sort((a, b) => b.meeting.startsAt.getTime() - a.meeting.startsAt.getTime());
   const ids = invites.map((i) => i.meeting.id);
   const tracking = ids.length ? await prisma.meetingTracking.findMany({ where: { meetingId: { in: ids } } }) : [];
   const tBy = new Map(tracking.map((t) => [t.meetingId, t]));
@@ -409,8 +447,136 @@ export async function counts(viewerId: string, meetingId: string) {
   await requireReady();
   const v = await who(viewerId);
   if (!OVERSIGHT.includes(v.role)) throw new Error("NOT_ALLOWED");
-  const m = await prisma.meeting.findFirst({ where: { id: meetingId, platformId: v.platformId }, select: { id: true, _count: { select: { attendees: true } } } });
+  const m = await prisma.meeting.findFirst({ where: { id: meetingId, platformId: v.platformId }, select: { id: true, organizerId: true, _count: { select: { attendees: true } } } });
   if (!m) throw new Error("NOT_FOUND");
   if (!(await prisma.meetingTracking.findUnique({ where: { meetingId } }))) throw new Error("NOT_TRACKED");
-  return { invited: m._count.attendees, joined: await prisma.meetingParticipation.count({ where: { meetingId } }) };
+  return { invited: m._count.attendees, joined: await prisma.meetingParticipation.count({ where: { meetingId, userId: { not: m.organizerId } } }) };
+}
+
+// --- productive-time breakdown (shared by the employee and manager screens) -----------------------------------------
+
+/**
+ * The Team Huddle records of one person that could overlap one work session, shaped for computeBreakdown.
+ * Reads existing records only. Returns [] before the migration (nobody has a huddle then).
+ */
+export async function huddlesForSession(userId: string, loginAt: Date, logoutAt: Date | null, now: Date) {
+  if (!(await participationReady())) return [];
+  const from = new Date(loginAt.getTime() - 6 * 3_600_000);
+  const to = logoutAt ?? now;
+  const rows = await prisma.meetingParticipation.findMany({
+    where: { userId, joinedAt: { gte: from, lte: to } },
+    select: { id: true, meetingId: true, joinedAt: true, leftAt: true, source: true },
+    orderBy: { joinedAt: "asc" },
+  });
+  if (rows.length === 0) return [];
+  const meetings = await prisma.meeting.findMany({
+    where: { id: { in: rows.map((r) => r.meetingId) } },
+    select: { id: true, title: true, startsAt: true, endsAt: true },
+  });
+  const by = new Map(meetings.map((m) => [m.id, m]));
+  return rows.flatMap((r) => {
+    const m = by.get(r.meetingId);
+    return m ? [{ id: r.id, meetingId: r.meetingId, title: m.title, startsAt: m.startsAt, expectedEnd: m.endsAt, joinedAt: r.joinedAt, leftAt: r.leftAt, source: r.source }] : [];
+  });
+}
+
+// --- manager: today's huddles and each reporting employee's breakdown --------------------------------------------------
+
+/**
+ * For a MANAGER: the huddles they organize on a day, restricted to THEIR reporting employees (the teams they run plus
+ * direct reports, same rule as Live Team), and each of those people's productive-time split for that day.
+ * Uses the same computeBreakdown as the employee's own screen. Batched reads, joined in memory.
+ */
+export async function managerOverview(userId: string, dayStr?: string) {
+  await requireReady();
+  const v = await who(userId);
+  if (v.role !== "MANAGER") throw new Error("NOT_ALLOWED");
+  const today = platformToday(v.tz);
+  const day = dayStr ? parseIsoDay(dayStr) : today;
+  const dayIso = day.toISOString().slice(0, 10);
+  const scope = new Set(await visibleUserIds({ id: userId, role: v.role, platformId: v.platformId }));
+  const now = new Date();
+
+  const tracked = await prisma.meetingTracking.findMany({ select: { meetingId: true, lateAfterMinutes: true }, where: { platformId: v.platformId } });
+  const tBy = new Map(tracked.map((t) => [t.meetingId, t.lateAfterMinutes]));
+  const mine = await prisma.meeting.findMany({
+    where: { platformId: v.platformId, organizerId: userId, status: "SCHEDULED", id: { in: [...tBy.keys()] } },
+    select: { id: true, title: true, startsAt: true, endsAt: true, attendees: { select: { user: { select: { id: true, firstName: true, lastName: true, employeeCode: true } } } } },
+    orderBy: { startsAt: "asc" },
+  });
+  // only the meetings that start on the chosen company day
+  const onDay = mine.filter((m) => localDayOf(m.startsAt, v.tz) === dayIso);
+
+  const nameOf = new Map<string, { name: string; code: string | null }>();
+  for (const m of onDay) for (const a of m.attendees) if (scope.has(a.user.id)) nameOf.set(a.user.id, { name: `${a.user.firstName} ${a.user.lastName}`.trim(), code: a.user.employeeCode });
+  const ids = [...nameOf.keys()];
+
+  const [parts, sessions] = ids.length
+    ? await Promise.all([
+        prisma.meetingParticipation.findMany({ where: { meetingId: { in: onDay.map((m) => m.id) }, userId: { in: ids } } }),
+        prisma.workSession.findMany({ where: { userId: { in: ids }, date: day }, include: { breaks: true, meetings: true } }),
+      ])
+    : [[], []];
+  const pBy = new Map(parts.map((p) => [`${p.meetingId}|${p.userId}`, p]));
+  const sBy = new Map(sessions.map((s) => [s.userId, s]));
+  const endOf = new Map(onDay.map((m) => [m.id, m.endsAt]));
+
+  const people = ids
+    .map((id) => {
+      const s = sBy.get(id) ?? null;
+      const huddles = parts.filter((p) => p.userId === id).flatMap((p) => (endOf.has(p.meetingId) ? [{ id: p.id, joinedAt: p.joinedAt, leftAt: p.leftAt, expectedEnd: endOf.get(p.meetingId) as Date }] : []));
+      const b = s
+        ? computeBreakdown({
+            loginAt: s.loginAt, logoutAt: s.logoutAt,
+            breaks: s.breaks.map((x) => ({ startedAt: x.startedAt, endedAt: x.endedAt })),
+            liveMeetings: s.meetings.map((x) => ({ approvalStatus: String(x.approvalStatus), startedAt: x.startedAt, endedAt: x.endedAt })),
+            huddles, now,
+          })
+        : null;
+      return {
+        userId: id, name: nameOf.get(id)!.name, employeeCode: nameOf.get(id)!.code, clockedIn: !!s,
+        regularSeconds: b?.regularSeconds ?? 0, huddleSeconds: b?.huddleSeconds ?? 0, otherEligibleSeconds: b?.otherEligibleSeconds ?? 0, totalSeconds: b?.productiveSeconds ?? 0,
+      };
+    })
+    .sort((x, y) => x.name.localeCompare(y.name));
+
+  return {
+    date: dayIso, timezone: v.tz, now: now.toISOString(), selfReported: true,
+    meetings: onDay.map((m) => {
+      const late = tBy.get(m.id) ?? 5;
+      const rows = m.attendees
+        .filter((a) => scope.has(a.user.id))
+        .map((a) => {
+          const p = pBy.get(`${m.id}|${a.user.id}`) ?? null;
+          const sess = sBy.get(a.user.id) ?? null;
+          const calc = sess && p
+            ? computeBreakdown({
+                loginAt: sess.loginAt, logoutAt: sess.logoutAt,
+                breaks: sess.breaks.map((x) => ({ startedAt: x.startedAt, endedAt: x.endedAt })), liveMeetings: [],
+                huddles: [{ id: p.id, joinedAt: p.joinedAt, leftAt: p.leftAt, expectedEnd: m.endsAt }], now,
+              })
+            : null;
+          return {
+            userId: a.user.id, name: `${a.user.firstName} ${a.user.lastName}`.trim(), employeeCode: a.user.employeeCode,
+            state: L.stateOf(p), joinedAt: p?.joinedAt ?? null, leftAt: p?.leftAt ?? null, durationSeconds: p?.leftAt ? p.durationSeconds : null,
+            late: p ? L.isLate(p.joinedAt, m.startsAt, late) : false,
+            countedSeconds: calc?.huddleSeconds ?? 0, // the part that counts towards productive time (inside clock-in, outside breaks)
+            openPastEnd: p ? L.isStillActivePastEnd(p, m.endsAt, now) : false,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return {
+        id: m.id, title: m.title, startsAt: m.startsAt, endsAt: m.endsAt, lateAfterMinutes: late,
+        summary: {
+          invited: rows.length,
+          joined: rows.filter((r) => r.state !== "NOT_JOINED").length,
+          notJoined: rows.filter((r) => r.state === "NOT_JOINED").length,
+          inMeeting: rows.filter((r) => r.state === "IN_MEETING").length,
+          late: rows.filter((r) => r.late).length,
+        },
+        rows,
+      };
+    }),
+    people,
+  };
 }

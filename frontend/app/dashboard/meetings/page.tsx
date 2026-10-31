@@ -142,7 +142,7 @@ function MeetingsInner() {
                   {m.canEnd && <EndInline id={m.id} onDone={() => { setNotice("Meeting ended. It now shows under Past."); setReload((n) => n + 1); }} />}
                   <button onClick={() => setOpenId(m.id)} className="rounded-lg border border-indigo-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Details</button>
                 </div>
-                {m.tracked && !m.isOrganizer && m.state !== "cancelled" && (
+                {m.tracked && m.state !== "cancelled" && (
                   <div className="w-full">
                     {m.state === "past" ? <PastRecord f={m} tz={tz} /> : <JoinControl meetingId={m.id} endsAt={m.endsAt} tz={tz} f={m} compact onChanged={() => setReload((n) => n + 1)} />}
                   </div>
@@ -248,7 +248,9 @@ function DetailsModal({ id, tz, onClose, onEdit, onChanged }: { id: string; tz: 
           )}
           {m.tracked && m.isOrganizer && m.state !== "cancelled" && (
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">Who joined (live)</p>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">You, as the organizer</p>
+              {m.state === "past" ? <PastRecord f={m} tz={tz} /> : <JoinControl meetingId={m.id} endsAt={m.endsAt} tz={tz} f={m} onChanged={() => setRl((n) => n + 1)} />}
+              <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">Who joined (live)</p>
               <ParticipationPanel meetingId={m.id} />
             </div>
           )}
@@ -277,10 +279,10 @@ function EditModal({ meeting, tz, onClose, onDone }: { meeting: Meeting | null; 
   const [start, setStart] = useState(meeting ? hhmm(meeting.startsAt, tz) : "10:00");
   const [end, setEnd] = useState(meeting ? hhmm(meeting.endsAt, tz) : "11:00");
   const [url, setUrl] = useState(meeting?.meetingUrl ?? "");
-  // An in-person stand-up: no link; people press "I'm in the Meeting". Chosen when scheduling and not changed afterwards.
+  // An in-person stand-up: no link; people press "Join Huddle". Chosen when scheduling and not changed afterwards.
   const [inPerson, setInPerson] = useState(false);
   const [lateAfter, setLateAfter] = useState("5");
-  const inPersonOn = meeting ? !!meeting.tracked : inPerson;
+  const inPersonOn = meeting?.tracked ? true : inPerson;
   const [picked, setPicked] = useState<string[]>(meeting?.attendees.map((a) => a.id) ?? []);
   const [find, setFind] = useState("");
   const [listOpen, setListOpen] = useState(false);
@@ -311,7 +313,7 @@ function EditModal({ meeting, tz, onClose, onDone }: { meeting: Meeting | null; 
     if (busy || invalid) return;
     setBusy(true);
     setError("");
-    const body = { title, description, date, startTime: start, endTime: end, meetingUrl: inPersonOn ? "" : url, attendeeIds: picked, ...(!meeting && inPerson ? { inPerson: true, lateAfterMinutes: Number(lateAfter) } : {}) };
+    const body = { title, description, date, startTime: start, endTime: end, meetingUrl: inPersonOn ? "" : url, attendeeIds: picked, ...(!meeting?.tracked && inPerson ? { inPerson: true, lateAfterMinutes: Number(lateAfter) } : {}) };
     try {
       if (meeting) await apiPatch(`/meetings/${meeting.id}`, body);
       else await apiPost("/meetings", body);
@@ -323,10 +325,10 @@ function EditModal({ meeting, tz, onClose, onDone }: { meeting: Meeting | null; 
   }
   const input = "mt-1 w-full rounded-xl border border-indigo-100 bg-white px-3 py-2.5 text-sm text-slate-800";
   return (
-    <Modal title={meeting ? "Edit meeting" : "New meeting"} subtitle={inPersonOn ? "A face-to-face meeting. Invited people press “I'm in the Meeting” when they are in the room, and you see who joined." : "Paste an existing Google Meet, Teams or Zoom link. Avatar HRMS does not create the meeting for you."} onClose={onClose} width="max-w-xl"
+    <Modal title={meeting ? "Edit meeting" : "New meeting"} subtitle={inPersonOn ? "A face-to-face meeting. Invited people press “Join Huddle” when they are in the room, and you see who joined." : "Paste an existing Google Meet, Teams or Zoom link. Avatar HRMS does not create the meeting for you."} onClose={onClose} width="max-w-xl"
       footer={<div className="flex justify-end gap-2"><button onClick={onClose} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Close</button><button disabled={busy || invalid} onClick={save} className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{busy ? "Saving…" : meeting ? "Save changes" : "Schedule"}</button></div>}>
       <div className="space-y-4">
-        {!meeting && (
+        {!meeting?.tracked && (
           <div className="rounded-xl bg-[#F6F7FE] p-3">
             <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
               <input type="checkbox" checked={inPerson} onChange={(e) => setInPerson(e.target.checked)} /> In-person stand-up (track who joins)
@@ -339,7 +341,7 @@ function EditModal({ meeting, tz, onClose, onDone }: { meeting: Meeting | null; 
                 {!lateOk && <span className="w-full text-xs text-red-600">Enter 0 to 120.</span>}
               </div>
             )}
-            <p className="mt-2 text-xs text-slate-500">Self-reported: people declare when they join and leave. It doesn&apos;t prove presence and it is separate from attendance and working hours.</p>
+            <p className="mt-2 text-xs text-slate-500">Self-reported: people declare when they join and leave. It doesn&apos;t prove presence and it is separate from attendance and working hours.{meeting ? " Turning this on removes the link, tells the invited people, and can't be switched off again." : ""}</p>
           </div>
         )}
         {meeting?.tracked && <p className="rounded-xl bg-[#F6F7FE] px-3 py-2 text-xs text-slate-600">In-person stand-up. Participation is tracked; this can&apos;t be switched off after scheduling.</p>}

@@ -7,7 +7,7 @@ import { Modal } from "../../_employees/Modal";
 
 // ---------------------------------------------------------------------------
 // IN-PERSON MEETING PARTICIPATION (screens)
-// Employee: "I'm in the Meeting" -> live timer -> "Meeting Ended" -> a completed record.
+// Employee: "Join Huddle" -> live timer -> "End Participation" -> a completed record.
 // Organizing manager: the live list (who joined, who has not, who is still in), corrections, history.
 // HR / Admin never see this panel: the server gives them counts only.
 // Everything here is SELF-REPORTED: the times are what people declared (the server stamps them); they do not prove
@@ -110,7 +110,7 @@ export function JoinControl({ meetingId, endsAt, tz, f, onChanged, compact = fal
         <p className="mt-1 text-3xl font-semibold tabular-nums" aria-live="off" aria-label="Time in the meeting">{clock(elapsed)}</p>
         {pastEnd && <p className="mt-1 text-xs text-amber-200">The expected end ({timeFmt(endsAt, tz)}) has passed. Press the button when you leave.</p>}
         <button onClick={() => act("leave")} disabled={busy} className="mt-3 w-full rounded-xl bg-white px-5 py-3 text-base font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:opacity-60 sm:w-auto">
-          {busy ? "Saving…" : "Meeting Ended"}
+          {busy ? "Saving…" : "End Participation"}
         </button>
         {error && <p className="mt-2 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-rose-100">{error}</p>}
         <p className="mt-2 text-xs text-indigo-200">Press it when you leave the room. The time is recorded by the server.</p>
@@ -124,7 +124,7 @@ export function JoinControl({ meetingId, endsAt, tz, f, onChanged, compact = fal
     return (
       <div className={`${box} bg-indigo-50`}>
         <button onClick={() => act("join")} disabled={busy} className="w-full rounded-xl bg-indigo-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-60 sm:w-auto">
-          {busy ? "Saving…" : "I'm in the Meeting"}
+          {busy ? "Saving…" : "Join Huddle"}
         </button>
         {error && <p className="mt-2 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-700">{error}</p>}
         <p className="mt-2 text-xs text-slate-500">
@@ -134,7 +134,7 @@ export function JoinControl({ meetingId, endsAt, tz, f, onChanged, compact = fal
     );
   }
   if (w?.reason === "TOO_EARLY") {
-    return <p className={`${box} bg-slate-50 text-sm text-slate-600`}>You can press “I&apos;m in the Meeting” from {timeFmt(w.opensAt, tz)} (15 minutes before it starts).</p>;
+    return <p className={`${box} bg-slate-50 text-sm text-slate-600`}>You can press “Join Huddle” from {timeFmt(w.opensAt, tz)} (15 minutes before it starts).</p>;
   }
   if (w?.reason === "CLOSED") {
     return <p className={`${box} bg-slate-50 text-sm text-slate-600`}>Joining has closed because the expected end has passed. If you were there, ask the organizer to record it.</p>;
@@ -163,7 +163,9 @@ type Row = {
   state: "NOT_JOINED" | "IN_MEETING" | "ENDED"; joinedAt: string | null; leftAt: string | null; durationSeconds: number | null;
   late: boolean; minutesAfterStart: number | null; stillActivePastEnd: boolean; source: string | null; corrected: boolean;
 };
+type OrganizerRow = Pick<Row, "userId" | "name" | "state" | "joinedAt" | "leftAt" | "durationSeconds" | "late" | "minutesAfterStart" | "stillActivePastEnd">;
 type Panel = {
+  organizer?: OrganizerRow;
   meeting: { id: string; title: string; startsAt: string; endsAt: string; status: string };
   timezone: string; now: string; lateAfterMinutes: number;
   summary: { invited: number; joined: number; notJoined: number; inMeeting: number; ended: number; late: number; stillActivePastEnd: number; actualDurationSeconds: number | null; actualDurationOngoing: boolean; averageParticipationSeconds: number | null };
@@ -227,7 +229,7 @@ export function ParticipationPanel({ meetingId }: { meetingId: string }) {
 
       {s.stillActivePastEnd > 0 && (
         <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {s.stillActivePastEnd} {s.stillActivePastEnd === 1 ? "person is" : "people are"} still marked as in the meeting after the expected end ({timeFmt(data.meeting.endsAt, tz)}). They haven&apos;t pressed “Meeting Ended”. Nothing is closed automatically; you can correct the record.
+          {s.stillActivePastEnd} {s.stillActivePastEnd === 1 ? "person is" : "people are"} still marked as in the meeting after the expected end ({timeFmt(data.meeting.endsAt, tz)}). They haven&apos;t pressed “End Participation”. Nothing is closed automatically; you can correct the record.
         </p>
       )}
 
@@ -244,6 +246,25 @@ export function ParticipationPanel({ meetingId }: { meetingId: string }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-indigo-50">
+            {data.organizer && (
+              <tr className="bg-[#F6F7FE]/70">
+                <td className="px-3 py-2.5">
+                  <p className="font-medium text-slate-900">{data.organizer.name} <span className="ml-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">you · organizer</span></p>
+                  <p className="text-xs text-slate-400">Not counted among the invited people</p>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${CHIP[data.organizer.state].cls}`}>{CHIP[data.organizer.state].label}</span>
+                  {data.organizer.late && <span className="ml-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">late +{data.organizer.minutesAfterStart}m</span>}
+                  {data.organizer.stillActivePastEnd && <span className="ml-1.5 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">still active past end</span>}
+                </td>
+                <td className="px-3 py-2.5 tabular-nums text-slate-700">{timeFmt(data.organizer.joinedAt, tz)}</td>
+                <td className="px-3 py-2.5 tabular-nums text-slate-700">{data.organizer.state === "ENDED" ? timeFmt(data.organizer.leftAt, tz) : "—"}</td>
+                <td className="px-3 py-2.5 tabular-nums text-slate-700">
+                  {data.organizer.state === "IN_MEETING" && data.organizer.joinedAt ? <span className="text-emerald-700">{clock((now - new Date(data.organizer.joinedAt).getTime()) / 1000)}</span> : dur(data.organizer.durationSeconds)}
+                </td>
+                <td className="px-3 py-2.5" />
+              </tr>
+            )}
             {data.rows.map((r) => {
               const live = r.state === "IN_MEETING" && r.joinedAt ? (now - new Date(r.joinedAt).getTime()) / 1000 : null;
               return (

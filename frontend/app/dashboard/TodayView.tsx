@@ -26,6 +26,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { useMe } from "./layout";
 import DayRow from "./_timesheet/DayRow";
+import StandupCard from "./_standup/StandupCard";
+import Breakdown from "./_timesheet/Breakdown";
+import HuddleOverview from "./_standup/HuddleOverview";
 import { LateRemarkModal } from "./_timesheet/LateRemarkModal";
 import { EntryLogModal, ScheduleModal } from "./_timesheet/Modals";
 import RequestCorrectionModal from "./_corrections/RequestModal";
@@ -565,6 +568,9 @@ export default function TodayView() {
           </div>
         </header>
 
+        {/* An in-person stand-up you are invited to: the join button, the live "in a meeting" state, your record. */}
+        <StandupCard />
+
         {preset === "CUSTOM" && (
           <div className="mt-3 flex flex-wrap items-end gap-3 rounded-2xl bg-slate-50 px-4 py-3">
             {(["from", "to"] as const).map((k) => (
@@ -770,6 +776,12 @@ export default function TodayView() {
         </div>
 
         {/* ===================== My Timesheets ===================== */}
+        {me.role === "MANAGER" && <HuddleOverview compact />}
+
+        {tsData && (
+          <Breakdown totals={tsData.totals} days={days} tz={tz} today={today} rangeLabel={rangeLabel} />
+        )}
+
         <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
             <span className="flex items-center gap-2 text-[15px] font-medium text-slate-900"><span className="text-slate-500">{Ico.sheet}</span> My timesheets</span>

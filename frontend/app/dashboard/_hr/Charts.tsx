@@ -30,10 +30,13 @@ export type ChartRow = {
   productivity: number;
 };
 
-const AXIS = { fontSize: 11, fill: "#94a3b8" };
+// Colours read the --chart-* variables that only the dark theme defines; the fallbacks are the original light colours.
+const AXIS = { fontSize: 11, fill: "var(--chart-tick, #94a3b8)" };
 const TOOLTIP_STYLE = {
   borderRadius: 12,
-  border: "1px solid #E5E7F4",
+  border: "1px solid var(--chart-grid, #E5E7F4)",
+  backgroundColor: "var(--surface, #ffffff)",
+  color: "var(--foreground, #1e293b)",
   boxShadow: "0 8px 24px rgba(83,104,237,0.12)",
   fontSize: 12,
 };
@@ -42,10 +45,10 @@ export function AttendanceChart({ rows }: { rows: ChartRow[] }) {
   return (
     <ResponsiveContainer width="100%" height={240}>
       <BarChart data={rows} margin={{ top: 8, right: 8, left: -18, bottom: 0 }} barGap={4}>
-        <CartesianGrid vertical={false} stroke="#E5E7F4" />
+        <CartesianGrid vertical={false} stroke="var(--chart-grid, #E5E7F4)" />
         <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={12} />
         <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
-        <Tooltip cursor={{ fill: "#F3F4FE" }} contentStyle={TOOLTIP_STYLE} />
+        <Tooltip cursor={{ fill: "var(--chart-cursor, #F3F4FE)" }} contentStyle={TOOLTIP_STYLE} />
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
         <Bar dataKey="present" name="Present" fill="#5368ED" radius={[6, 6, 0, 0]} maxBarSize={22} />
         <Bar dataKey="absent" name="Absent" fill="#fda4af" radius={[6, 6, 0, 0]} maxBarSize={22} />
@@ -69,7 +72,7 @@ export function ProductivityChart({ rows }: { rows: ChartRow[] }) {
             <stop offset="100%" stopColor="#6B7CF0" stopOpacity={0.02} />
           </linearGradient>
         </defs>
-        <CartesianGrid vertical={false} stroke="#E5E7F4" />
+        <CartesianGrid vertical={false} stroke="var(--chart-grid, #E5E7F4)" />
         <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={12} />
         <YAxis
           tick={AXIS}
