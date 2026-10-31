@@ -3,6 +3,7 @@ import { parseIsoDay, platformToday, zonedToUtc } from "../../lib/dates.js";
 import { saveUpload, readStored, deleteStored, contentTypeFor } from "../../lib/storage.js";
 import { notifyUsers } from "../../lib/notify.js";
 import { auditNote } from "../../lib/auditContext.js";
+import { companyScope, groupHrUsers } from "../../lib/groupHr.js";
 import { sendMail } from "../../lib/mailer.js";
 import { correctionSubmittedEmail, correctionDecidedEmail } from "../../lib/emails.js";
 import { computeLate, getContext, recompute } from "../tracker/tracker.service.js";
@@ -186,10 +187,12 @@ export async function submitRequest(
   const name = `${ctx.user.firstName} ${ctx.user.lastName}`.trim();
   const recorded = existing ? `In ${clock(existing.loginAt, tz)} / Out ${clock(existing.logoutAt, tz)}` : "No attendance recorded";
   const requested = `In ${reqLogin ? clock(reqLogin, tz) : "unchanged"} / Out ${reqLogout ? clock(reqLogout, tz) : "unchanged"}`;
-  const hr = await prisma.user.findMany({
+  const ownHr = await prisma.user.findMany({
     where: { platformId: ctx.platformId, role: { in: ["HR", "ADMIN"] }, status: "ACTIVE", id: { not: userId } },
     select: { id: true, email: true },
   });
+  // The parent company's HR handles every company, so they hear about it too.
+  const hr = [...new Map([...ownHr, ...(await groupHrUsers(userId))].map((h) => [h.id, h])).values()];
   const notified = await notifyUsers({
     platformId: ctx.platformId,
     userIds: hr.map((h) => h.id),
@@ -254,7 +257,7 @@ export async function cancelRequest(userId: string, id: string) {
 
 export async function pendingCount(viewerId: string) {
   const v = await decider(viewerId);
-  return { pending: await prisma.attendanceCorrectionRequest.count({ where: { platformId: v.platformId, status: "PENDING" } }) };
+  return { pending: await prisma.attendanceCorrectionRequest.count({ where: { ...(await companyScope(v)), status: "PENDING" } }) };
 }
 
 export async function listForReview(
@@ -269,8 +272,9 @@ export async function listForReview(
   const q = String(f.q ?? "").trim();
   const teamId = f.teamId ? String(f.teamId) : "";
 
+  const scope = await companyScope(v);
   const where = {
-    platformId: v.platformId,
+    ...scope,
     ...(status ? { status } : {}),
     ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     user: {
@@ -285,12 +289,12 @@ export async function listForReview(
       orderBy: [{ createdAt: "desc" }],
       take: 300,
       include: {
-        user: { select: { id: true, firstName: true, lastName: true, employeeCode: true, designation: true } },
+        user: { select: { id: true, firstName: true, lastName: true, employeeCode: true, designation: true, platform: { select: { name: true } } } },
         reviewedBy: { select: { firstName: true, lastName: true } },
       },
     }),
-    prisma.attendanceCorrectionRequest.groupBy({ by: ["status"], where: { platformId: v.platformId }, _count: true }),
-    prisma.team.findMany({ where: { platformId: v.platformId, isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.attendanceCorrectionRequest.groupBy({ by: ["status"], where: scope, _count: true }),
+    prisma.team.findMany({ where: { ...scope, isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const counts: Record<string, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0 };
   for (const g of grouped) counts[String(g.status)] = g._count;
@@ -301,7 +305,7 @@ export async function listForReview(
     teams,
     requests: rows.map((r) => ({
       ...view(r),
-      employee: { id: r.user.id, name: `${r.user.firstName} ${r.user.lastName}`.trim(), employeeCode: r.user.employeeCode, designation: r.user.designation },
+      employee: { id: r.user.id, name: `${r.user.firstName} ${r.user.lastName}`.trim(), employeeCode: r.user.employeeCode, designation: r.user.designation, company: r.user.platform.name },
     })),
   };
 }
@@ -310,7 +314,7 @@ export async function details(viewerId: string, id: string) {
   const v = await person(viewerId);
   const isDecider = DECIDERS.includes(String(v.role));
   const r = await prisma.attendanceCorrectionRequest.findFirst({
-    where: { id, platformId: v.platformId, ...(isDecider ? {} : { userId: v.id }) },
+    where: { id, ...(isDecider ? await companyScope(v) : { platformId: v.platformId, userId: v.id }) },
     include: {
       user: { select: { id: true, firstName: true, lastName: true, employeeCode: true, designation: true } },
       reviewedBy: { select: { firstName: true, lastName: true } },
@@ -336,7 +340,7 @@ export async function openAttachment(viewerId: string, id: string) {
   const v = await person(viewerId);
   const isDecider = DECIDERS.includes(String(v.role));
   const r = await prisma.attendanceCorrectionRequest.findFirst({
-    where: { id, platformId: v.platformId, ...(isDecider ? {} : { userId: v.id }) },
+    where: { id, ...(isDecider ? await companyScope(v) : { platformId: v.platformId, userId: v.id }) },
     select: { attachmentKey: true, attachmentName: true },
   });
   if (!r?.attachmentKey) throw new Error("NOT_FOUND");
@@ -349,7 +353,7 @@ export async function decide(viewerId: string, id: string, decision: unknown, co
   const text = String(comment ?? "").trim().slice(0, 500) || null;
   if (decision === "REJECT" && (!text || text.length < 3)) throw new Error("COMMENT_REQUIRED");
 
-  const req = await prisma.attendanceCorrectionRequest.findFirst({ where: { id, platformId: v.platformId } });
+  const req = await prisma.attendanceCorrectionRequest.findFirst({ where: { id, ...(await companyScope(v)) } });
   if (!req) throw new Error("NOT_FOUND");
   if (req.userId === v.id) throw new Error("OWN_REQUEST");
   if (String(req.status) !== "PENDING") throw new Error("ALREADY_DECIDED");
@@ -366,7 +370,7 @@ export async function decide(viewerId: string, id: string, decision: unknown, co
     async (tx) => {
       // 1. Claim the request. Only one reviewer can move it out of PENDING; the other gets ALREADY_DECIDED.
       const claimed = await tx.attendanceCorrectionRequest.updateMany({
-        where: { id, platformId: v.platformId, status: "PENDING" },
+        where: { id, platformId: req.platformId, status: "PENDING" },
         data: { status: approve ? "APPROVED" : "REJECTED", reviewedById: v.id, reviewedAt: new Date(), reviewComment: text },
       });
       if (claimed.count === 0) throw new Error("ALREADY_DECIDED");

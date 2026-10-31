@@ -1140,8 +1140,8 @@ export async function commitEmployees(viewerId: string, input: CommitInput) {
               // tracker straight away, new joiners wait for documents; either
               // way the temporary password must be changed at first sign-in.
               onboardingStatus: existingStaff ? "ACTIVE" : "OFFER_SENT",
-              trackerAccessEnabled: existingStaff,
-              accessGrantedAt: existingStaff ? new Date() : null,
+              trackerAccessEnabled: true,
+              accessGrantedAt: new Date(),
               mustChangePassword: true,
             },
             select: { id: true },

@@ -300,8 +300,8 @@ export async function createUser(
         shiftId: data.shiftId || null,
         reportsToId: data.reportsToId || null,
         onboardingStatus: skip ? "ACTIVE" : "OFFER_SENT",
-        trackerAccessEnabled: skip,
-        accessGrantedAt: skip ? new Date() : null,
+        trackerAccessEnabled: true,
+        accessGrantedAt: new Date(),
         // Whoever typed this password - HR, an admin, or the generator - it is
         // known to someone other than its owner, so it works exactly once.
         mustChangePassword: true,

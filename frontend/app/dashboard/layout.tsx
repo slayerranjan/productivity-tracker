@@ -156,7 +156,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard/notifications", label: "Notifications", ready: true, icon: I.bell },
       { href: "/dashboard/corrections", label: "Corrections", ready: true, notRoles: ["HR", "ADMIN"], icon: I.approvals },
       { href: "/dashboard/leave", label: "Leave", ready: true, icon: I.holidays },
-      { href: "/dashboard/documents", label: "Documents", ready: true, icon: I.payslip },
+      { href: "/dashboard/documents", label: "Documents", ready: true, roles: ["HR", "ADMIN"], icon: I.payslip },
       { href: "/dashboard/meetings", label: "Meetings", ready: true, icon: I.team },
       { href: "/dashboard/policies", label: "Policies", ready: true, icon: I.approvals },
       { href: "/dashboard/tickets", label: "Tickets", ready: true, icon: I.ticket },

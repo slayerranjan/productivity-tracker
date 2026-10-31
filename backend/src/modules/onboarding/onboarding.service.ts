@@ -22,6 +22,12 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { viewerIsOwner } from "../../lib/owner.js";
+import { viewerIsGroupHr } from "../../lib/groupHr.js";
+
+// The owner and the parent company's HR both work across every company on joiners and their papers.
+async function crossCompany(viewerId: string) {
+  return (await viewerIsOwner(viewerId)) || (await viewerIsGroupHr(viewerId));
+}
 import { saveUpload, readStored, deleteStored, contentTypeFor } from "../../lib/storage.js";
 import { parseIsoDay } from "../../lib/dates.js";
 import { auditNote, changedFields } from "../../lib/auditContext.js";
@@ -314,13 +320,16 @@ export async function createHire(
         phone: data.phone?.trim() || null,
         employeeCode,
         role: "EMPLOYEE",
-        status: "CANDIDATE",
+        // A live account from day one: the joiner signs in (after setting their own password) and
+        // goes straight to the tracker. Their papers are uploaded under My Profile and HR approves
+        // them later; onboardingStatus below still drives HR's Joiners list.
+        status: "INVITED",
         designation: data.designation?.trim() || null,
         dateOfJoining: data.dateOfJoining ? parseIsoDay(data.dateOfJoining) : null,
         shiftId: data.shiftId || null,
         onboardingStatus: "OFFER_SENT",
-        // The gate stays shut until the resume is on file.
-        trackerAccessEnabled: false,
+        trackerAccessEnabled: true,
+        accessGrantedAt: new Date(),
         mustChangePassword: true, // the joiner must replace the HR-chosen temporary password
       },
       select: { id: true, employeeCode: true, email: true, firstName: true, lastName: true },
@@ -363,7 +372,7 @@ async function samePlatformOrOwner(
   platformId: string,
   userId: string
 ) {
-  if (await viewerIsOwner(viewerId)) {
+  if (await crossCompany(viewerId)) {
     const exists = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true },
@@ -378,7 +387,7 @@ export async function listCandidates(viewerId: string) {
   assertStaff(String(viewer.role));
 
   // An owner hires into every company, so their Joiners list must span them.
-  const owner = await viewerIsOwner(viewerId);
+  const owner = await crossCompany(viewerId);
 
   const [candidates, requirements, config] = await Promise.all([
     prisma.user.findMany({
@@ -800,7 +809,7 @@ export async function reviewDocument(
   if (!doc) throw new Error("NOT_FOUND");
   // An owner reviews documents in every company; everyone else stays locked
   // to their own.
-  if (doc.platformId !== viewer.platformId && !(await viewerIsOwner(viewerId))) {
+  if (doc.platformId !== viewer.platformId && !(await crossCompany(viewerId))) {
     throw new Error("NOT_FOUND");
   }
 
@@ -839,17 +848,19 @@ export async function uploadForCandidate(
   const viewer = await actor(viewerId);
   assertStaff(String(viewer.role));
   await samePlatformOrOwner(viewerId, viewer.platformId, userId);
+  const subject = await prisma.user.findUnique({ where: { id: userId }, select: { platformId: true } });
+  if (!subject) throw new Error("NOT_FOUND");
 
   const requirement = await prisma.documentRequirement.findUnique({
     where: { id: data.requirementId },
     select: { id: true, platformId: true, category: true },
   });
-  if (!requirement || requirement.platformId !== viewer.platformId) {
+  if (!requirement || requirement.platformId !== subject.platformId) {
     throw new Error("NOT_FOUND");
   }
 
   const stored = await saveUpload({
-    platformId: viewer.platformId,
+    platformId: subject.platformId,
     folder: "documents",
     originalName: data.fileName,
     data: data.data,
@@ -880,7 +891,7 @@ export async function uploadForCandidate(
   } else {
     await prisma.employeeDocument.create({
       data: {
-        platformId: viewer.platformId,
+        platformId: subject.platformId,
         userId,
         requirementId: requirement.id,
         category: requirement.category,
@@ -918,7 +929,7 @@ export async function downloadDocument(viewerId: string, documentId: string) {
   if (!doc) throw new Error("NOT_FOUND");
   // An owner reviews documents in every company; everyone else stays locked
   // to their own.
-  if (doc.platformId !== viewer.platformId && !(await viewerIsOwner(viewerId))) {
+  if (doc.platformId !== viewer.platformId && !(await crossCompany(viewerId))) {
     throw new Error("NOT_FOUND");
   }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { useMe } from "../layout";
+import { MyDocuments } from "../_documents/MyDocuments";
 
 // ---------------------------------------------------------------------------
 // MY PROFILE
@@ -226,7 +227,12 @@ export default function ProfilePage() {
         )}
       </section>
 
-           {/* ---- payslips: a pointer, not a second list ---- */}
+      {/* ---- documents: upload here, HR reviews ---- */}
+      <div className="mb-6 no-print">
+        <MyDocuments />
+      </div>
+
+      {/* ---- payslips: a pointer, not a second list ---- */}
       <section className="overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-card)] no-print">
         <div className="flex items-center justify-between gap-4 px-5 py-4">
           <div>
