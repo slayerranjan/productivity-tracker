@@ -131,3 +131,25 @@ export function computeBreakdown(input: BreakdownInput): Breakdown {
     })),
   };
 }
+
+/**
+ * Actual time spent on a task: from the moment it was started to the moment it was completed, counting only time inside the
+ * person's clocked-in period and outside their breaks (the same rule as everything else here). If the task was never started,
+ * never completed, or there is no clocked-in session to measure against, there is no reliable figure and it returns null
+ * (shown as "no timing", counted as zero). A LABEL on the task: never added to productive time.
+ */
+export function taskWorkSeconds(input: {
+  startedAt: Date | null;
+  completedAt: Date | null;
+  loginAt: Date | null;
+  logoutAt: Date | null;
+  breaks: { startedAt: Date; endedAt: Date | null }[];
+  now: Date;
+}): number | null {
+  if (!input.startedAt || !input.completedAt || !input.loginAt) return null;
+  if (input.completedAt.getTime() <= input.startedAt.getTime()) return null;
+  const clocked = merge([{ start: input.loginAt.getTime(), end: (input.logoutAt ?? input.now).getTime() }]);
+  const breaks = merge(input.breaks.map((b) => ({ start: b.startedAt.getTime(), end: (b.endedAt ?? input.now).getTime() })));
+  const working = subtract(clocked, breaks);
+  return totalSeconds(intersect(merge([{ start: input.startedAt.getTime(), end: input.completedAt.getTime() }]), working));
+}

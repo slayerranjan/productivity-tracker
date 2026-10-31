@@ -80,6 +80,7 @@ type Row = {
   wasLateLogin: boolean;
   lateByMinutes: number;
   lateRemark?: string | null;
+  huddleSeconds?: number;
   autoClosed: boolean;
   onLeave: boolean;
   leaveType: string | null;
@@ -337,6 +338,7 @@ export default function HistoryPage() {
                         }`}
                       >
                         {hm(r.productiveSeconds)}
+                        {(r.huddleSeconds ?? 0) > 0 && <span className="block text-[11px] font-normal text-slate-400" title="Part of the productive time, not extra">incl. {hm(r.huddleSeconds ?? 0)} Team Huddle</span>}
                       </td>
                       <td
                         className={`px-4 py-3 text-right tabular-nums ${

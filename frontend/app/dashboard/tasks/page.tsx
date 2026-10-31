@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost , API_BASE } from "@/lib/api";
 import { useTaskRealtime } from "@/lib/realtime";
 import { formatDate } from "@/lib/time";
+import SelfManagedTasks, { type SelfPayload } from "./_self/SelfManagedTasks";
 
 const API = API_BASE;
 
@@ -61,6 +62,8 @@ type Score = {
 };
 
 type Payload = {
+  // true for a manager once self-managed tasks are available: his own tasks need no approval (see _self/SelfManagedTasks)
+  selfManagedMode?: boolean;
   awaitingApproval: Task[];
   rejected: Task[];
   active: Task[];
@@ -170,6 +173,11 @@ export default function TasksPage() {
   }
 
   const score = data?.score;
+
+  // A manager's own work: self-managed, no approval. Employees (and everyone else) keep the screen below.
+  if (data?.selfManagedMode) {
+    return <SelfManagedTasks data={data as unknown as SelfPayload} onData={(p) => setData(p as unknown as Payload)} error={error} setError={setError} />;
+  }
 
   return (
     <div className="p-8 page-4xl space-y-5">

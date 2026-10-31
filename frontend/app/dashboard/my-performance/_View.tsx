@@ -20,6 +20,14 @@ export type Day = {
   taskTotal: number; taskDone: number; taskPercent: number | null;
 };
 export type History = { target: number; breakBudget: number; rows: Day[]; summary: { daysWorked: number; totalBreak: number; avgProductive: number; avgTaskScore: number | null } };
+export type SelfTasks = {
+  ready: boolean;
+  totals: { total: number; notStarted: number; inProgress: number; completed: number; overdue: number; completionRate: number | null };
+  daily: { date: string; completed: number }[];
+  weekly: { weekStart: string; completed: number }[];
+  timeSpent: { seconds: number; timedTasks: number; untimedTasks: number };
+  open: { id: string; title: string; status: string; dueDate: string | null; overdue: boolean }[];
+};
 export type Standups = { summary: { meetings: number; joined: number; notJoined: number; late: number; averageSeconds: number | null } };
 
 export const hm = (sec: number) => {
@@ -43,7 +51,21 @@ function Card({ label, value, sub, accent }: { label: string; value: string; sub
   );
 }
 
-export default function PerformanceView({ person, history, standups, tz, rangeLabel }: { person: Person; history: History | null; standups: Standups | null; tz: string; rangeLabel: string }) {
+// A small bar series drawn with plain CSS (no chart library): each bar is one day or one week.
+function Bars({ items, unit, tone }: { items: { label: string; value: number; hint: string }[]; unit: string; tone: string }) {
+  const max = Math.max(1, ...items.map((i) => i.value));
+  return (
+    <div role="img" aria-label={`${unit} per period`} className="flex h-24 items-end gap-1">
+      {items.map((i) => (
+        <div key={i.label} className="group flex h-full min-w-0 flex-1 flex-col justify-end" title={i.hint}>
+          <div className={`w-full rounded-t ${tone} ${i.value === 0 ? "opacity-20" : ""}`} style={{ height: `${Math.max(i.value === 0 ? 3 : 8, (i.value / max) * 100)}%` }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function PerformanceView({ person, history, standups, selfTasks, tz, rangeLabel }: { person: Person; history: History | null; standups: Standups | null; selfTasks?: SelfTasks | null; tz: string; rangeLabel: string }) {
   const p = person;
   const days = history?.rows ?? [];
   const counted = p.tasksCompleted + p.tasksPending;
@@ -67,6 +89,58 @@ export default function PerformanceView({ person, history, standups, tz, rangeLa
         <Card label="Late arrivals" value={String(p.lateDays)} sub={p.lateDays > 0 ? `${p.lateMinutes} minutes late in total` : "On time every day"} />
         <Card label="Breaks" value={hm(p.breakSeconds)} sub={avgBreak === null ? "No days worked" : `about ${hm(avgBreak)} a day · budget ${hm(history?.breakBudget ?? 0)}`} />
       </div>
+
+      {selfTasks?.ready && (
+        <section className="rounded-2xl bg-white p-5 shadow-[var(--shadow-card)]">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">My tasks <span className="font-normal text-slate-400">· your own, no approval needed</span></h2>
+            <Link href="/dashboard/tasks" className="text-xs font-medium text-indigo-600 hover:underline">Open My tasks</Link>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {([["Assigned to myself", selfTasks.totals.total, ""], ["Not started", selfTasks.totals.notStarted, ""], ["In progress", selfTasks.totals.inProgress, ""], ["Completed", selfTasks.totals.completed, ""], ["Overdue", selfTasks.totals.overdue, selfTasks.totals.overdue > 0 ? "text-red-600" : ""], ["Completion", selfTasks.totals.completionRate === null ? "—" : pct(selfTasks.totals.completionRate), ""]] as [string, number | string, string][]).map(([label, v, cls]) => (
+              <div key={label} className="rounded-xl bg-[#F6F7FE] px-3 py-2.5">
+                <p className="text-[11px] text-slate-500">{label}</p>
+                <p className={`text-xl font-semibold tabular-nums ${cls || "text-slate-900"}`}>{v}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-sm text-slate-600">
+            Time spent on completed tasks: <b className="text-slate-900">{selfTasks.timeSpent.timedTasks > 0 ? hm(selfTasks.timeSpent.seconds) : "—"}</b>
+            <span className="text-xs text-slate-400"> · {selfTasks.timeSpent.timedTasks} task{selfTasks.timeSpent.timedTasks === 1 ? "" : "s"} with a recorded start and finish{selfTasks.timeSpent.untimedTasks > 0 ? `, ${selfTasks.timeSpent.untimedTasks} without timing` : ""}. Only time while clocked in and not on a break. Part of your productive time, not extra.</span>
+          </p>
+          {selfTasks.open.length > 0 && (
+            <ul className="mt-3 divide-y divide-indigo-50 rounded-xl border border-indigo-100 text-sm">
+              {selfTasks.open.map((t) => (
+                <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <span className="text-slate-800">{t.title}</span>
+                  <span className="text-xs text-slate-500">{t.status === "IN_PROGRESS" ? "In progress" : "Not started"}{t.dueDate ? <> · <span className={t.overdue ? "font-medium text-red-600" : ""}>{t.overdue ? "overdue " : "due "}{t.dueDate}</span></> : ""}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {(days.length > 0 || (selfTasks?.ready && selfTasks.daily.length > 0)) && (
+        <section className="grid gap-4 rounded-2xl bg-white p-5 shadow-[var(--shadow-card)] md:grid-cols-2">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Productive time per day</h2>
+            <p className="mb-2 text-xs text-slate-400">Each bar is one day worked, oldest on the left.</p>
+            <Bars tone="bg-indigo-500" unit="Productive time" items={[...days].reverse().map((d) => ({ label: d.date, value: d.productiveSeconds, hint: `${dayFmt(d.date)}: ${hm(d.productiveSeconds)}` }))} />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Tasks completed {selfTasks?.ready && selfTasks.weekly.length > 1 ? "per week" : "per day"}</h2>
+            <p className="mb-2 text-xs text-slate-400">Your own tasks only.</p>
+            {selfTasks?.ready ? (
+              selfTasks.weekly.length > 1 ? (
+                <Bars tone="bg-emerald-500" unit="Tasks completed" items={selfTasks.weekly.map((w) => ({ label: w.weekStart, value: w.completed, hint: `Week of ${dayFmt(w.weekStart)}: ${w.completed} completed` }))} />
+              ) : (
+                <Bars tone="bg-emerald-500" unit="Tasks completed" items={selfTasks.daily.map((d) => ({ label: d.date, value: d.completed, hint: `${dayFmt(d.date)}: ${d.completed} completed` }))} />
+              )
+            ) : <p className="text-sm text-slate-400">Not available yet.</p>}
+          </div>
+        </section>
+      )}
 
       {standups && standups.summary.meetings > 0 && (
         <section className="rounded-2xl bg-white p-5 shadow-[var(--shadow-card)]">

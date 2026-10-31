@@ -40,6 +40,7 @@ type PersonRow = {
   daysAbsent: number;
   daysNotTracked: number;
   teamName: string | null;
+  huddleSeconds: number;
   lateDays: number;
   lateMinutes: number;
   autoClosedDays: number;
@@ -89,6 +90,7 @@ type Report = {
     daysOnLeave: number;
     daysAbsent: number;
     daysNotTracked: number;
+    huddleSeconds: number;
     managersExcluded: number;
     lateDays: number;
     productiveSeconds: number;
@@ -255,14 +257,14 @@ function SummaryReport() {
         header = [
           "Name", "Employee code", "Role", "Days expected", "Days present",
           "Days on leave", "Days absent", "Days not tracked", "Late days", "Late minutes",
-          "Productive", "Break", "Meetings", "Target", "Productivity %",
+          "Productive", "Of which Team Huddle", "Break", "Meetings", "Target", "Productivity %",
           "Tasks completed", "Tasks pending", "Task completion %",
           "Task score %", "Alerts", "Auto-closed days",
         ];
         rows = report.people.map((p) => [
           p.name, p.employeeCode, p.role, p.daysExpected, p.daysPresent,
           p.daysOnLeave, p.daysAbsent, p.daysNotTracked, p.lateDays, p.lateMinutes,
-          hm(p.productiveSeconds), hm(p.breakSeconds), hm(p.meetingSeconds),
+          hm(p.productiveSeconds), hm(p.huddleSeconds), hm(p.breakSeconds), hm(p.meetingSeconds),
           hm(p.targetSeconds), Math.round(p.attainment * 100),
           p.tasksCompleted, p.tasksPending, Math.round(p.taskCompletion * 100),
           Math.round(p.taskScore * 100), p.alertCount, p.autoClosedDays,
@@ -437,7 +439,7 @@ function SummaryReport() {
           <Tile
             label="Productive"
             value={hm(t.productiveSeconds)}
-            sub={`of ${hm(t.targetSeconds)} expected · incl. ${hm(t.meetingSeconds)} meetings${t.managersExcluded > 0 ? ` · ${t.managersExcluded} manager${t.managersExcluded === 1 ? "" : "s"} not counted` : ""}`}
+            sub={`of ${hm(t.targetSeconds)} expected · incl. ${hm(t.meetingSeconds)} meetings${t.huddleSeconds > 0 ? ` · ${hm(t.huddleSeconds)} in Team Huddles` : ""}${t.managersExcluded > 0 ? ` · ${t.managersExcluded} manager${t.managersExcluded === 1 ? "" : "s"} not counted` : ""}`}
           />
           <Tile
             label="Tasks completed"
@@ -495,6 +497,7 @@ function SummaryReport() {
                   <th className="px-4 py-3 text-right" title="Days nobody in the company clocked in: paid, not counted as absent">Not tracked</th>
                   <th className="px-4 py-3 text-right">Late</th>
                   <th className="px-4 py-3 text-right">Productive</th>
+                  <th className="px-4 py-3 text-right" title="Part of the productive time that was spent in a Team Huddle. Already inside Productive, not extra.">Team Huddle</th>
                   <th className="px-4 py-3 text-right">Break</th>
                   <th className="px-4 py-3 text-right">Meetings</th>
                   <th className="px-4 py-3 text-right" title="Productive hours divided by expected hours">Productivity %</th>
@@ -541,6 +544,9 @@ function SummaryReport() {
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums font-medium text-slate-900">
                       {hm(p.productiveSeconds)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">
+                      {p.huddleSeconds > 0 ? hm(p.huddleSeconds) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-600">
                       {hm(p.breakSeconds)}

@@ -29,6 +29,12 @@ const MAX_DAYS = 93;
 const DAY_MS = 86_400_000;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
+// The person's OWN planned time for the period: their row in the report, never the report's totals. The totals leave managers out
+// of productivity (so the team's figures are not skewed), which made a manager's own planned hours 0 while his days were 6.
+export function plannedSecondsOf(people: { userId: string; targetSeconds: number }[], userId: string): number {
+  return people.find((p) => p.userId === userId)?.targetSeconds ?? 0;
+}
+
 export async function getTimesheet(userId: string, fromStr?: string, toStr?: string) {
   const ctx = await getContext(userId);
   const today = platformToday(ctx.timezone);
@@ -189,7 +195,7 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
       onLeaveDays: report.totals.daysOnLeave,
       // The planned (target) time for the period, as the Reports page defines it:
       // productive hours for each scheduled working day.
-      plannedSeconds: report.totals.targetSeconds,
+      plannedSeconds: plannedSecondsOf(report.people as { userId: string; targetSeconds: number }[], userId),
       daysWorked: sessions.length,
       productiveSeconds,
       breakSeconds,

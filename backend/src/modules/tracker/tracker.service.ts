@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { onlyPinnedCompany } from "../../lib/deployment.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { cleanRemark, lateRemarksReady, LateRemarkRequired, remarksBySession } from "./lateRemarks.js";
+import { huddleSecondsByDay } from "../meetings/participation.service.js";
 
 const DEFAULTS = {
   dailyWorkHours: 9,
@@ -892,6 +893,8 @@ export async function getHistory(userId: string, fromStr?: string, toStr?: strin
   }
 
   const remarkOf = await remarksBySession(sessions.map((s) => s.id));
+  // Team Huddle time that counted per day: a label inside productive time, never an addition (see participation.service).
+  const huddleMap = await huddleSecondsByDay([userId], from, to);
 
   const rows = sessions.map((s) => {
     const k = key(s.date);
@@ -926,6 +929,7 @@ export async function getHistory(userId: string, fromStr?: string, toStr?: strin
       wasLateLogin: s.wasLateLogin,
       lateByMinutes: s.lateByMinutes,
       lateRemark: remarkOf.get(s.id) ?? null,
+      huddleSeconds: huddleMap.get(`${userId}|${k}`) ?? 0,
       autoClosed: s.autoClosed,
       onLeave: leaveByDate.has(k),
       leaveType: leaveByDate.get(k)?.leaveType ?? null,

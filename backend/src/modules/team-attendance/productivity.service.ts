@@ -12,6 +12,7 @@
 // Who is on screen is the same list as everywhere else in the manager views (visibleUserIds).
 
 import { prisma } from "../../lib/prisma.js";
+import { selfManagedTaskIdsOf } from "../tasks/tasks.self.js";
 import { auditNote } from "../../lib/auditContext.js";
 import { localDayOf, parseIsoDay, platformToday, zonedToUtc } from "../../lib/dates.js";
 import { visibleUserIds } from "../tracker/tracker.service.js";
@@ -117,10 +118,12 @@ export async function getProductivity(viewerId: string, q: { from?: string; to?:
   const endUtc = zonedToUtc(addDays(toIso, 1), "00:00", tz);
   const rangeDay = (d: Date) => d.toISOString().slice(0, 10);
 
+  // A manager's own (self-managed) tasks are his personal productivity: they never count in TEAM figures.
+  const selfIds = await selfManagedTaskIdsOf(ids);
   const [counted, planned, legacy] = await Promise.all([
-    prisma.dailyTask.findMany({ where: { userId: { in: ids }, ...COUNTED, completedAt: { gte: startUtc, lt: endUtc } }, select: { id: true, userId: true, completedAt: true } }),
-    prisma.dailyTask.groupBy({ by: ["userId", "date"], where: { userId: { in: ids }, approvalStatus: "APPROVED", date: { gte: parseIsoDay(fromIso), lte: parseIsoDay(toIso) } }, _count: { _all: true } }),
-    prisma.dailyTask.groupBy({ by: ["userId", "date"], where: { userId: { in: ids }, approvalStatus: "APPROVED", status: "COMPLETED", completedAt: null, date: { gte: parseIsoDay(fromIso), lte: parseIsoDay(toIso) } }, _count: { _all: true } }),
+    prisma.dailyTask.findMany({ where: { userId: { in: ids }, id: { notIn: selfIds }, ...COUNTED, completedAt: { gte: startUtc, lt: endUtc } }, select: { id: true, userId: true, completedAt: true } }),
+    prisma.dailyTask.groupBy({ by: ["userId", "date"], where: { userId: { in: ids }, id: { notIn: selfIds }, approvalStatus: "APPROVED", date: { gte: parseIsoDay(fromIso), lte: parseIsoDay(toIso) } }, _count: { _all: true } }),
+    prisma.dailyTask.groupBy({ by: ["userId", "date"], where: { userId: { in: ids }, id: { notIn: selfIds }, approvalStatus: "APPROVED", status: "COMPLETED", completedAt: null, date: { gte: parseIsoDay(fromIso), lte: parseIsoDay(toIso) } }, _count: { _all: true } }),
   ]);
 
   const doneBy = new Map<string, number>(); // "userId|day" -> tasks finished that day (each task once)
@@ -187,8 +190,9 @@ export async function getHourly(viewerId: string, q: { date?: string; userId?: s
   const people = await scopedPeople(viewer, q);
   if (people.length === 0) return { ...base, people: [] as unknown[] };
   const ids = people.map((p) => p.id);
+  const selfIds = await selfManagedTaskIdsOf(ids); // a manager's own tasks are not team productivity
   const tasks = await prisma.dailyTask.findMany({
-    where: { userId: { in: ids }, ...COUNTED, completedAt: { gte: zonedToUtc(day, "00:00", tz), lt: zonedToUtc(addDays(day, 1), "00:00", tz) } },
+    where: { userId: { in: ids }, id: { notIn: selfIds }, ...COUNTED, completedAt: { gte: zonedToUtc(day, "00:00", tz), lt: zonedToUtc(addDays(day, 1), "00:00", tz) } },
     select: { id: true, userId: true, completedAt: true },
   });
   const grid = new Map<string, number[]>();
