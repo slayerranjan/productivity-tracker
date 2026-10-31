@@ -5,6 +5,8 @@ import { emitPolicyChange } from "../../lib/realtime.js";
 import { auditNote } from "../../lib/auditContext.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { docxToHtml, viewKind } from "./policies.docs.js";
+import { viewerIsOwner } from "../../lib/owner.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 
 // ---------------------------------------------------------------------------
 // POLICIES & INDUCTION
@@ -62,24 +64,35 @@ async function requireReady() {
 }
 
 // --- who is asking ------------------------------------------------------------------------------------------------
-async function who(userId: string) {
+// `actAs`: an OWNER (OWNER_CODES) who is HR/Admin may act inside another company, so one person can run the policies of the companies
+// they look after. Anyone else asking for it is refused; a deployment pinned to one company switches it off.
+async function who(userId: string, actAs?: string) {
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true, platformId: true, firstName: true, lastName: true, teamMemberships: { where: { isActive: true }, select: { teamId: true } }, platform: { select: { timezone: true } } },
   });
   if (!u) throw new Error("USER_NOT_FOUND");
+  let platformId = u.platformId;
+  let timezone = u.platform.timezone;
+  if (actAs && actAs !== u.platformId) {
+    if (!["HR", "ADMIN"].includes(String(u.role)) || !(await viewerIsOwner(userId)) || (await getPinnedCompany())) throw new Error("NOT_ALLOWED");
+    const target = await prisma.platform.findFirst({ where: { id: actAs, isActive: true }, select: { id: true, timezone: true } });
+    if (!target) throw new Error("NOT_FOUND");
+    platformId = target.id;
+    timezone = target.timezone;
+  }
   let employmentType: string | null = null;
   try {
     employmentType = (await prisma.employeeProfile.findUnique({ where: { userId }, select: { employmentType: true } }))?.employmentType ?? null;
   } catch {
     /* table may not exist on an old database: no type = matches only audiences that don't ask for one */
   }
-  return { id: u.id, role: String(u.role), platformId: u.platformId, name: `${u.firstName} ${u.lastName}`.trim(), teamIds: u.teamMemberships.map((m) => m.teamId), timezone: u.platform.timezone, employmentType };
+  return { id: u.id, role: String(u.role), platformId, name: `${u.firstName} ${u.lastName}`.trim(), teamIds: u.teamMemberships.map((m) => m.teamId), timezone, employmentType };
 }
 type Viewer = Awaited<ReturnType<typeof who>>;
 
-async function staff(userId: string) {
-  const v = await who(userId);
+async function staff(userId: string, actAs?: string) {
+  const v = await who(userId, actAs);
   if (!STAFF.includes(v.role)) throw new Error("NOT_ALLOWED");
   return v;
 }
@@ -425,9 +438,10 @@ async function readCategory(v: Viewer, x: unknown): Promise<string> {
 
 export async function createDocument(
   viewerId: string,
-  body: Upload & { category?: string; title?: string; description?: string; isMandatory?: boolean; teamId?: string | null; versionLabel?: string; effectiveDate?: string | null; allowDownload?: boolean; audience?: { teamIds?: unknown; employmentTypes?: unknown; roles?: unknown } | null }
+  body: Upload & { category?: string; title?: string; description?: string; isMandatory?: boolean; teamId?: string | null; versionLabel?: string; effectiveDate?: string | null; allowDownload?: boolean; audience?: { teamIds?: unknown; employmentTypes?: unknown; roles?: unknown } | null },
+  actAs?: string
 ) {
-  const v = await staff(viewerId);
+  const v = await staff(viewerId, actAs);
   const category = await readCategory(v, body.category);
   const title = String(body.title ?? "").trim();
   if (title.length < 2) throw new Error("TITLE_REQUIRED");
@@ -562,9 +576,9 @@ export async function replaceFile(viewerId: string, id: string, body: Upload) {
 
 // Publish the unpublished version (the draft policy itself, or a prepared new version). HR must confirm, and must
 // have acknowledged any review notes that are still open. Employees in the audience are notified.
-export async function publish(viewerId: string, id: string, body: { confirm?: unknown; acknowledgeNotes?: unknown; effectiveDate?: string | null; requiresAck?: boolean }) {
+export async function publish(viewerId: string, id: string, body: { confirm?: unknown; acknowledgeNotes?: unknown; effectiveDate?: string | null; requiresAck?: boolean }, actAs?: string) {
   if (body.confirm !== true) throw new Error("CONFIRM_REQUIRED");
-  const v = await staff(viewerId);
+  const v = await staff(viewerId, actAs);
   await requireReady();
   const { doc, meta } = await loadForStaff(v, id);
   const detail = meta.details.get(doc.id);
