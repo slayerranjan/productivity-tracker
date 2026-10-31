@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { addDaysIso, firstOfMonthIso, isoDaysAgo, todayIso } from "@/lib/time";
 import { useMe } from "../layout";
-import PerformanceView, { type History, type Person, type Standups } from "./_View";
+import PerformanceView, { type History, type Person, type SelfTasks, type Standups } from "./_View";
 
 // ---------------------------------------------------------------------------
 // MY PERFORMANCE (managers only): your OWN productivity, attendance, tasks, lateness, breaks and in-person meetings
@@ -48,21 +48,22 @@ export default function MyPerformancePage() {
     : range.to < range.from ? "The end date can't be before the start date."
     : spanDays(range.from, range.to) > MAX_DAYS ? `Pick a range of ${MAX_DAYS} days or fewer.` : "";
 
-  const [data, setData] = useState<{ key: string; person: Person | null; history: History | null; standups: Standups | null; error?: string } | null>(null);
+  const [data, setData] = useState<{ key: string; person: Person | null; history: History | null; standups: Standups | null; selfTasks: SelfTasks | null; error?: string } | null>(null);
   const key = `${range.from}|${range.to}`;
 
   const load = useCallback(async () => {
     if (!me || rangeError) return;
     try {
-      const [report, history, standups] = await Promise.all([
+      const [report, history, standups, selfTasks] = await Promise.all([
         apiGet<{ people: (Person & { userId: string })[] }>(`/reports?from=${range.from}&to=${range.to}&groupBy=person&userId=${me.id}`),
         apiGet<History>(`/tracker/history?from=${range.from}&to=${range.to}`),
         apiGet<Standups>("/meetings/participation/history").catch(() => null), // not available yet: the section simply does not show
+        apiGet<SelfTasks>(`/tasks/self/summary?from=${range.from}&to=${range.to}`).catch(() => null), // not available yet: the section does not show
       ]);
       const person = report.people.find((p) => p.userId === me.id) ?? null;
-      setData({ key, person, history, standups });
+      setData({ key, person, history, standups, selfTasks });
     } catch (e) {
-      setData({ key, person: null, history: null, standups: null, error: (e as Error).message });
+      setData({ key, person: null, history: null, standups: null, selfTasks: null, error: (e as Error).message });
     }
   }, [me, range.from, range.to, rangeError, key]);
 
@@ -119,7 +120,7 @@ export default function MyPerformancePage() {
         <p className="rounded-2xl bg-white p-6 text-sm text-slate-600 shadow-[var(--shadow-card)]">Nothing to show for {rangeLabel}: no working days or records.</p>
       )}
       {!rangeError && current?.person && (
-        <PerformanceView person={current.person} history={current.history} standups={current.standups} tz={tz} rangeLabel={rangeLabel} />
+        <PerformanceView person={current.person} history={current.history} standups={current.standups} selfTasks={current.selfTasks} tz={tz} rangeLabel={rangeLabel} />
       )}
     </div>
   );

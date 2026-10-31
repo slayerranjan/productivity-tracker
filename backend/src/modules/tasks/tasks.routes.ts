@@ -7,6 +7,7 @@
 
 import { Router } from "express";
 import * as tasks from "./tasks.service.js";
+import * as selfTasks from "./tasks.self.js";
 import { guardUuidParams, isBadInput } from "../../lib/params.js";
 
 const router = Router();
@@ -43,6 +44,11 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   ALREADY_ANSWERED: { status: 409, message: "That proposal was already decided." },
   APPROVED_CANNOT_EDIT: { status: 400, message: "Approved work can't be edited. Ask your manager." },
   ALREADY_STARTED: { status: 400, message: "You've already started that task, so it can't be deleted." },
+  SELF_MANAGED: { status: 409, message: "That is the manager's own task. It needs no approval and nobody reviews it." },
+  SELF_MANAGED_ONLY: { status: 400, message: "Deadlines and work updates are for a manager's own tasks." },
+  DUE_IN_PAST: { status: 400, message: "The deadline can't be before today." },
+  BAD_RANGE: { status: 400, message: "The end date can't be before the start date." },
+  RANGE_TOO_LONG: { status: 400, message: "Pick a range of 93 days or fewer." },
   ASSIGNED_CANNOT_DELETE: { status: 400, message: "A task your manager assigned can't be deleted." },
 };
 
@@ -73,6 +79,26 @@ router.get("/", async (req, res) => {
 router.get("/day", async (req, res) => {
   try {
     res.json(await tasks.listMyDay(req.user!.userId, req.query.date));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// A manager's OWN task picture (self-managed tasks only). Managers only.
+router.get("/self/summary", async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    res.json(await selfTasks.summary(req.user!.userId, String(req.query.from ?? today.slice(0, 8) + "01"), String(req.query.to ?? today)));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+// The history of one of the signed-in person's own tasks: every step, edit and work update.
+router.get("/:id/history", async (req, res) => {
+  try {
+    const task = await tasks.ownTaskOrThrow(req.user!.userId, id(req.params.id));
+    res.json({ taskId: task.id, events: await selfTasks.historyOf(task.id) });
   } catch (e) {
     fail(res, e);
   }

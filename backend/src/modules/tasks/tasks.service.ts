@@ -3,6 +3,7 @@ import { taskNotice } from "./tasks.notify.js";
 import { prisma } from "../../lib/prisma.js";
 import { inPinnedCompany, onlyPinnedCompany } from "../../lib/deployment.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
+import { detailsFor, recordEvent, selfTasksReady, shapeSelf } from "./tasks.self.js";
 
 // ---------------------------------------------------------------------------
 // SCORING
@@ -271,7 +272,11 @@ export async function listTasks(userId: string) {
     myProjects(userId),
   ]);
 
-  const tasks = rows.map((t) => shape(t, t.team?.name ?? null));
+  const selfDetails = await detailsFor(rows.map((r) => r.id));
+  const nowForSelf = new Date();
+  const tasks = rows.map((t) => ({ ...shape(t, t.team?.name ?? null), ...shapeSelf(selfDetails.get(t.id), String(t.status), nowForSelf, ctx.timezone) }));
+  // True for a manager once the self-managed tables exist: his own tasks need no approval.
+  const selfManagedMode = ctx.role === "MANAGER" && (await selfTasksReady());
 
   const working = tasks.filter(
     (t) => t.approvalStatus === "APPROVED" && t.status !== "COMPLETED"
@@ -288,7 +293,8 @@ export async function listTasks(userId: string) {
 
   return {
     date: date.toISOString().slice(0, 10),
-    selfApproves: !ctx.user.reportsToId,
+    selfApproves: !ctx.user.reportsToId || selfManagedMode,
+    selfManagedMode,
     score,
     scorePercent: score.percent,
     projects,
@@ -362,24 +368,38 @@ export async function proposeTask(userId: string, body: Record<string, unknown>)
   );
 
   const date = platformToday(ctx.timezone);
-  const selfApprove = !ctx.user.reportsToId;
+  // A MANAGER's own tasks are self-managed: approved when created, no approval step, nobody notified, no review queue. (Employee
+  // tasks keep the approval workflow. Before the migration nothing is self-managed and a manager's task waits as it always did.)
+  const selfManaged = ctx.role === "MANAGER" && (await selfTasksReady());
+  const selfApprove = !ctx.user.reportsToId || selfManaged;
 
-  const created = await prisma.dailyTask.create({
-    data: {
-      platformId: ctx.platformId,
-      userId,
-      date,
-      title,
-      description,
-      teamId,
-      weight: weight as never,
-      status: "PENDING" as never,
-      approvalStatus: (selfApprove ? "APPROVED" : "PENDING") as never,
-      approvedById: selfApprove ? userId : null,
-      approvedAt: selfApprove ? new Date() : null,
-    },
-    select: { id: true },
+  let due: Date | null = null;
+  if (selfManaged && body.dueDate !== undefined && body.dueDate !== null && body.dueDate !== "") {
+    due = parseIsoDay(body.dueDate);
+    if (due.getTime() < date.getTime()) throw new Error("DUE_IN_PAST");
+  }
+
+  const created = await prisma.$transaction(async (tx) => {
+    const t = await tx.dailyTask.create({
+      data: {
+        platformId: ctx.platformId,
+        userId,
+        date,
+        title,
+        description,
+        teamId,
+        weight: weight as never,
+        status: "PENDING" as never,
+        approvalStatus: (selfApprove ? "APPROVED" : "PENDING") as never,
+        approvedById: selfApprove ? userId : null,
+        approvedAt: selfApprove ? new Date() : null,
+      },
+      select: { id: true },
+    });
+    if (selfManaged) await tx.taskSelfDetail.create({ data: { taskId: t.id, platformId: ctx.platformId, userId, dueDate: due } });
+    return t;
   });
+  if (selfManaged) await recordEvent({ taskId: created.id, platformId: ctx.platformId, actorId: userId, kind: "CREATED", note: due ? `Due ${due.toISOString().slice(0, 10)}` : null });
   emitTaskChange({ taskId: created.id, ownerId: userId, action: "created" }); // after the write succeeded
   if (!selfApprove) await taskNotice("proposed", created.id, userId);
 
@@ -393,6 +413,11 @@ export async function updateMyTask(
 ) {
   const task = await prisma.dailyTask.findUnique({ where: { id: taskId } });
   if (!task || task.userId !== userId) throw new Error("NOT_FOUND");
+
+  const sd = (await detailsFor([taskId])).get(taskId);
+  const selfManaged = !!sd;
+  const detailPatch: { startedAt?: Date; dueDate?: Date | null } = {};
+  const events: { kind: "STARTED" | "COMPLETED" | "REOPENED" | "EDITED" | "UPDATE"; note?: string }[] = [];
 
   const data: Record<string, unknown> = {};
 
@@ -408,6 +433,31 @@ export async function updateMyTask(
     // Moving it back out of COMPLETED (before a manager reviews it) clears it again.
     if (status === "COMPLETED" && String(task.status) !== "COMPLETED") data.completedAt = new Date();
     if (status !== "COMPLETED" && String(task.status) === "COMPLETED") data.completedAt = null;
+    if (selfManaged) {
+      // The start time is set once, the first time the manager marks it In Progress (or completes it straight from Not Started).
+      if ((status === "IN_PROGRESS" || status === "COMPLETED") && !sd!.startedAt) {
+        detailPatch.startedAt = new Date();
+        events.push({ kind: "STARTED" });
+      }
+      if (status === "COMPLETED" && String(task.status) !== "COMPLETED") events.push({ kind: "COMPLETED" });
+      if (status !== "COMPLETED" && String(task.status) === "COMPLETED") events.push({ kind: "REOPENED" });
+    }
+  }
+
+  if (body.dueDate !== undefined) {
+    if (!selfManaged) throw new Error("SELF_MANAGED_ONLY");
+    const next = body.dueDate === null || body.dueDate === "" ? null : parseIsoDay(body.dueDate);
+    if ((next?.getTime() ?? null) !== (sd!.dueDate?.getTime() ?? null)) {
+      detailPatch.dueDate = next;
+      events.push({ kind: "EDITED", note: next ? `Deadline set to ${next.toISOString().slice(0, 10)}` : "Deadline removed" });
+    }
+  }
+
+  let workUpdate: string | null = null;
+  if (body.workUpdate !== undefined && body.workUpdate !== null && String(body.workUpdate).trim() !== "") {
+    if (!selfManaged) throw new Error("SELF_MANAGED_ONLY");
+    workUpdate = String(body.workUpdate).trim().slice(0, 1000);
+    events.push({ kind: "UPDATE", note: workUpdate });
   }
 
   if (body.completionNote !== undefined) {
@@ -424,8 +474,13 @@ export async function updateMyTask(
     body.teamId !== undefined ||
     body.projectId !== undefined
   ) {
-    if (String(task.approvalStatus) === "APPROVED") {
+    // Approved work can't be edited, EXCEPT a manager's own task: it is his, and he may keep it up to date.
+    if (String(task.approvalStatus) === "APPROVED" && !selfManaged) {
       throw new Error("APPROVED_CANNOT_EDIT");
+    }
+    if (selfManaged) {
+      const changed = ["title", "description", "weight"].filter((k) => (body as Record<string, unknown>)[k] !== undefined);
+      if (changed.length) events.push({ kind: "EDITED", note: `Changed ${changed.join(", ")}` });
     }
 
     if (body.title !== undefined) {
@@ -460,14 +515,18 @@ export async function updateMyTask(
     }
   }
 
-  if (Object.keys(data).length === 0) throw new Error("NOTHING_TO_UPDATE");
+  if (Object.keys(data).length === 0 && Object.keys(detailPatch).length === 0 && !workUpdate) throw new Error("NOTHING_TO_UPDATE");
 
-  await prisma.dailyTask.update({
-    where: { id: taskId },
-    data: data as never,
-  });
+  if (Object.keys(data).length > 0 || Object.keys(detailPatch).length > 0) {
+    await prisma.$transaction(async (tx) => {
+      if (Object.keys(data).length > 0) await tx.dailyTask.update({ where: { id: taskId }, data: data as never });
+      if (selfManaged && Object.keys(detailPatch).length > 0) await tx.taskSelfDetail.update({ where: { taskId }, data: detailPatch });
+    });
+  }
+  for (const e of events) await recordEvent({ taskId, platformId: task.platformId, actorId: userId, kind: e.kind, note: e.note ?? null });
   emitTaskChange({ taskId, ownerId: userId, action: body.status !== undefined ? "status" : "updated" });
-  if (body.status !== undefined && String(body.status) === "COMPLETED" && String(task.status) !== "COMPLETED") await taskNotice("submitted", taskId, userId);
+  // A manager's own completed task is not "submitted" to anyone: there is nobody to review it.
+  if (!selfManaged && body.status !== undefined && String(body.status) === "COMPLETED" && String(task.status) !== "COMPLETED") await taskNotice("submitted", taskId, userId);
 
   return listTasks(userId);
 }
@@ -550,7 +609,7 @@ export async function listForApproval(
     };
   }
 
-  const [people, rows, managedProjects] = await Promise.all([
+  const [people, rawRows, managedProjects] = await Promise.all([
     prisma.user.findMany({
       where: { id: { in: userIds } },
       select: {
@@ -594,6 +653,10 @@ export async function listForApproval(
       orderBy: { name: "asc" },
     }),
   ]);
+
+  // A manager's own tasks are self-managed: nobody reviews or grades them, so they never appear in anyone's queue.
+  const selfIds = new Set((await detailsFor(rawRows.map((r) => r.id))).keys());
+  const rows = rawRows.filter((r) => !selfIds.has(r.id));
 
   const all = rows.map((t) => {
     const who = `${t.user.firstName} ${t.user.lastName}`.trim();
@@ -728,6 +791,7 @@ export async function approveTask(
   const task = await prisma.dailyTask.findUnique({ where: { id: taskId } });
   if (!task) throw new Error("NOT_FOUND");
   await assertCanReviewTask(actor, task);
+  if ((await detailsFor([taskId])).has(taskId)) throw new Error("SELF_MANAGED");
 
   // A double-click can never overwrite a decision.
   if (String(task.approvalStatus) !== "PENDING") {
@@ -769,6 +833,7 @@ export async function reviewTask(
   const task = await prisma.dailyTask.findUnique({ where: { id: taskId } });
   if (!task) throw new Error("NOT_FOUND");
   await assertCanReviewTask(actor, task);
+  if ((await detailsFor([taskId])).has(taskId)) throw new Error("SELF_MANAGED");
 
   if (String(task.approvalStatus) !== "APPROVED") {
     throw new Error("NOT_APPROVED");
@@ -791,4 +856,10 @@ export async function reviewTask(
   await taskNotice(outcomeIn === "FAILED" ? "notAccepted" : "approved", taskId, managerId, { note: note ? String(note) : null, partial: outcomeIn === "PARTIALLY_COMPLETED" });
 
   return listForApproval(managerId);
+}
+/** The task, only if it belongs to this person (used by routes that read one of your own tasks). */
+export async function ownTaskOrThrow(userId: string, taskId: string) {
+  const task = await prisma.dailyTask.findUnique({ where: { id: taskId }, select: { id: true, userId: true } });
+  if (!task || task.userId !== userId) throw new Error("NOT_FOUND");
+  return task;
 }

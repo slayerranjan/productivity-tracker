@@ -1,0 +1,41 @@
+// ===========================================================================
+// MANAGER SELF-MANAGED TASKS - a manager's OWN tasks need no approval from anyone.
+//
+// A row in task_self_details marks a daily_tasks row as self-managed (and holds what daily_tasks has no room for: when the
+// manager started it, and its deadline). task_events is the task's history: every step, edit and work update, never changed.
+//
+// NEW TABLES ONLY: no column was added to daily_tasks. A database without these tables keeps working exactly as before
+// (a manager's task simply waits for approval, as it always did). No Prisma relations to existing models on purpose; the
+// foreign keys live in the migration SQL.
+// ===========================================================================
+
+model TaskSelfDetail {
+  taskId     String @id @db.Uuid // = daily_tasks.id
+  platformId String @db.Uuid
+  userId     String @db.Uuid // the manager who owns it
+
+  startedAt DateTime? // set once, when the manager first marks it In Progress
+  dueDate   DateTime? @db.Date // end of this company day is the deadline
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([platformId, dueDate])
+  @@map("task_self_details")
+}
+
+model TaskEvent {
+  id         String @id @default(uuid()) @db.Uuid
+  taskId     String @db.Uuid
+  platformId String @db.Uuid
+  actorId    String @db.Uuid
+
+  kind String // CREATED | STARTED | COMPLETED | REOPENED | EDITED | UPDATE (a work update)
+  note String? // the work update text, or a short description of what changed
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@map("task_events")
+}
