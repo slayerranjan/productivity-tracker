@@ -361,7 +361,13 @@ export async function downloadSlip(viewerId: string, slipId: string) {
 
   // A generated slip carries its figures but no file until somebody
   // produces one, so downloading it is a different thing from having it.
-  if (!slip.storageKey) throw new Error("NO_FILE");
+  if (!slip.storageKey) {
+    // No stored file: build the PDF from the slip's own figures, so it
+    // always matches the current numbers rather than a stale copy.
+    const { buildPayslipPdf } = await import("./payroll.pdf.js");
+    const built = await buildPayslipPdf(viewerId, slipId);
+    return { buffer: built.pdf, fileName: built.fileName, mimeType: "application/pdf" };
+  }
 
   const buffer = await readStored(slip.storageKey);
 
