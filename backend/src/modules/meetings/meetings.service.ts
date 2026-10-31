@@ -4,6 +4,7 @@ import { notifyUsers } from "../../lib/notify.js";
 import { sendMail } from "../../lib/mailer.js";
 import { meetingEmail } from "../../lib/emails.js";
 import { auditNote, changedFields } from "../../lib/auditContext.js";
+import * as part from "./participation.service.js";
 
 // ---------------------------------------------------------------------------
 // MEETINGS (scheduled meetings with a pasted link)
@@ -68,7 +69,7 @@ function whenText(startsAt: Date, endsAt: Date, tz: string) {
   return `${day}, ${t(startsAt)} to ${t(endsAt)} (${tz})`;
 }
 
-type Fields = { title?: unknown; description?: unknown; date?: unknown; startTime?: unknown; endTime?: unknown; meetingUrl?: unknown; attendeeIds?: unknown };
+type Fields = { title?: unknown; description?: unknown; date?: unknown; startTime?: unknown; endTime?: unknown; meetingUrl?: unknown; attendeeIds?: unknown; inPerson?: unknown; lateAfterMinutes?: unknown };
 
 function parseWhen(f: Fields, tz: string) {
   const day = parseIsoDay(f.date);
@@ -168,6 +169,7 @@ function view(m: Row, viewer: { id: string; role: string }, now: Date) {
     isOrganizer,
     canEdit: isOrganizer && !cancelled && !over,
     canCancel: (isOrganizer || OVERSIGHT.includes(viewer.role)) && !cancelled && !over,
+    canEnd: isOrganizer && !cancelled && !over && m.startsAt.getTime() <= now.getTime(),
   };
 }
 
@@ -198,11 +200,14 @@ export async function listMine(userId: string, f: { scope?: unknown; q?: unknown
       prisma.meeting.count({ where: { platformId: v.platformId, ...mine, status: "CANCELLED" } }),
     ]),
   ]);
+  const views = rows.map((m) => view(m as unknown as Row, v, now));
+  // In-person meetings carry participation fields (the viewer's own record, the join window, the joined count for the organizer).
+  const extras = await part.extrasFor(views.map((x) => ({ id: x.id, startsAt: x.startsAt, endsAt: x.endsAt, isOrganizer: x.isOrganizer, status: x.status })), userId, now);
   return {
     timezone: v.tz,
     canCreate: CREATORS.includes(v.role),
     counts: { upcoming: counts[0], past: counts[1], cancelled: counts[2] },
-    meetings: rows.map((m) => view(m as unknown as Row, v, now)),
+    meetings: views.map((x) => ({ ...x, ...(extras.get(x.id) ?? {}) })),
   };
 }
 
@@ -214,7 +219,10 @@ export async function getOne(userId: string, id: string) {
   });
   // Not invited and not the organizer: it does not exist as far as this person can tell.
   if (!m) throw new Error("NOT_FOUND");
-  return { timezone: v.tz, ...view(m as unknown as Row, v, new Date()) };
+  const now = new Date();
+  const one = view(m as unknown as Row, v, now);
+  const extras = await part.extrasFor([{ id: one.id, startsAt: one.startsAt, endsAt: one.endsAt, isOrganizer: one.isOrganizer, status: one.status }], userId, now);
+  return { timezone: v.tz, ...one, ...(extras.get(one.id) ?? {}) };
 }
 
 // HR/Admin oversight: no description, link or names.
@@ -229,6 +237,8 @@ export async function oversight(userId: string, f: { scope?: unknown }) {
     orderBy: { startsAt: scope === "upcoming" ? "asc" : "desc" },
     take: 200,
   });
+  // In-person meetings: HR/Admin get the COUNTS (invited, joined) and nothing else: no names, times or durations.
+  const joined = await part.joinedCounts(rows.map((r) => r.id));
   return {
     timezone: v.tz,
     meetings: rows.map((m) => ({
@@ -239,6 +249,7 @@ export async function oversight(userId: string, f: { scope?: unknown }) {
       status: String(m.status),
       organizer: `${m.organizer.firstName} ${m.organizer.lastName}`.trim(),
       attendeeCount: m._count.attendees,
+      participation: joined.has(m.id) ? { invited: m._count.attendees, joined: joined.get(m.id) ?? 0 } : null,
       canCancel: String(m.status) === "SCHEDULED" && m.endsAt.getTime() >= now.getTime(),
     })),
   };
@@ -266,7 +277,11 @@ export async function create(userId: string, body: Fields) {
   const { startsAt, endsAt } = parseWhen(body, v.tz);
   // A meeting cannot be scheduled in the past (a few minutes of slack for the clock).
   if (startsAt.getTime() < Date.now() - 5 * 60_000) throw new Error("PAST_MEETING");
-  const link = cleanUrl(body.meetingUrl);
+  // An in-person meeting has no link; it is tracked by "I'm in the Meeting" instead.
+  const inPerson = body.inPerson === true;
+  if (inPerson && !(await part.participationReady())) throw new Error("FEATURES_NOT_READY");
+  const lateAfter = inPerson ? part.cleanLateAfter(body.lateAfterMinutes) : 5;
+  const link = inPerson ? null : cleanUrl(body.meetingUrl);
   const attendees = await checkAttendees(body.attendeeIds, userId, v.platformId);
 
   const created = await prisma.$transaction(async (tx) => {
@@ -274,6 +289,7 @@ export async function create(userId: string, body: Fields) {
       data: { platformId: v.platformId, organizerId: userId, title: t, description: d, startsAt, endsAt, meetingUrl: link?.url ?? null, provider: link?.provider ?? null },
     });
     await tx.meetingAttendee.createMany({ data: attendees.map((a) => ({ meetingId: m.id, userId: a.id })) });
+    if (inPerson) await part.enableTracking(tx, { meetingId: m.id, platformId: v.platformId, createdById: userId, lateAfterMinutes: lateAfter });
     return m;
   });
 
@@ -281,9 +297,9 @@ export async function create(userId: string, body: Fields) {
     recordType: "Meeting",
     recordId: created.id,
     summary: `Scheduled "${t}" with ${attendees.length} ${attendees.length === 1 ? "person" : "people"}`,
-    after: { title: t, startsAt, endsAt, provider: link?.provider ?? null, attendees: attendees.length },
+    after: { title: t, startsAt, endsAt, provider: link?.provider ?? null, attendees: attendees.length, inPerson, lateAfterMinutes: inPerson ? lateAfter : undefined },
   });
-  await tell(v, created, attendees, "invited", null);
+  await tell(v, created, attendees, "invited", inPerson ? "This is an in-person meeting. When you are in the room, open Meetings and press \"I'm in the Meeting\"." : null);
   return { id: created.id, invited: attendees.length };
 }
 
@@ -340,6 +356,23 @@ export async function update(userId: string, id: string, body: Fields) {
     const gone = await prisma.user.findMany({ where: { id: { in: removedIds } }, select: { id: true, firstName: true, email: true } });
     await tell(v, meetingNow, gone, "removed", null);
   }
+  return { ok: true };
+}
+
+// The organizer closes a meeting that is happening now: its end time becomes "now", so it moves to Past.
+// (Cancel is for a meeting that has not started.) Nothing is deleted and attendance is not touched.
+export async function end(userId: string, id: string) {
+  const v = await who(userId);
+  const m = await prisma.meeting.findFirst({ where: { id, platformId: v.platformId, organizerId: userId } });
+  if (!m) throw new Error("NOT_FOUND");
+  if (String(m.status) === "CANCELLED") throw new Error("MEETING_CANCELLED");
+  const now = new Date();
+  if (m.endsAt.getTime() < now.getTime()) throw new Error("MEETING_OVER");
+  if (m.startsAt.getTime() > now.getTime()) throw new Error("NOT_STARTED");
+
+  const res = await prisma.meeting.updateMany({ where: { id, status: "SCHEDULED", endsAt: { gte: now } }, data: { endsAt: now } });
+  if (res.count === 0) throw new Error("MEETING_OVER");
+  auditNote({ recordType: "Meeting", recordId: id, before: { endsAt: m.endsAt.toISOString() }, after: { endsAt: now.toISOString() }, summary: `Ended "${m.title}" early` });
   return { ok: true };
 }
 

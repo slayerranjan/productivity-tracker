@@ -58,20 +58,31 @@ const CODE_TEXT: Record<string, string> = {
 };
 const said = (code: unknown) => CODE_TEXT[String(code)] ?? (typeof code === "string" ? code : "Something went wrong");
 
+// fetch, but a dropped connection (or an unreachable server) says so in plain words instead of the browser's
+// "Failed to fetch".
+async function send(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error("Can't reach the server. Check your internet connection and try again.");
+  }
+}
+
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await send(`${API_URL}${path}`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(body ?? {}),
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(said(data.error));
+  // `code` and `data` ride along so a screen can react to a specific refusal (for example "late, give a reason").
+  if (!res.ok) throw Object.assign(new Error(said(data.error)), { code: typeof data.code === "string" ? data.code : undefined, data });
   return data as T;
 }
 
 export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await send(`${API_URL}${path}`, {
     method: "PATCH",
     headers: headers(),
     body: JSON.stringify(body ?? {}),
@@ -83,7 +94,7 @@ export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { headers: headers() });
+  const res = await send(`${API_URL}${path}`, { headers: headers() });
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(said(data.error));

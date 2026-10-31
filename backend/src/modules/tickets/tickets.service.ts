@@ -218,6 +218,9 @@ export async function listTickets(
       raisedBy: { select: { id: true, firstName: true, lastName: true } },
       assignedTo: { select: { id: true, firstName: true, lastName: true } },
       _count: { select: { messages: true } },
+      // Who spoke last in the conversation the raiser can see (internal notes are ignored). Tells "waiting for
+      // staff" from "staff have answered".
+      messages: { where: { isInternal: false }, orderBy: { createdAt: "desc" }, take: 1, select: { authorId: true } },
     },
     orderBy: [{ createdAt: "desc" }],
   });
@@ -248,6 +251,9 @@ export async function listTickets(
       ? `${t.assignedTo.firstName} ${t.assignedTo.lastName}`.trim()
       : null,
     messageCount: t._count.messages,
+    // True while the ticket is still waiting for a staff answer: nobody has replied yet, or the last visible
+    // message is from the person who raised it. False once staff have answered (until the raiser writes back).
+    awaitingReply: t.messages.length === 0 || t.messages[0].authorId === t.raisedBy.id,
   }));
 }
 

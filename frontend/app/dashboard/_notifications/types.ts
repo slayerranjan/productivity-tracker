@@ -17,6 +17,7 @@ export const TYPE_LABEL: Record<string, string> = {
   MEETING_INVITE: "Meeting",
   MEETING_UPDATED: "Meeting",
   MEETING_CANCELLED: "Meeting",
+  MEETING_PARTICIPATION_CORRECTED: "Meeting",
   POLICY_PUBLISHED: "Policy",
   POLICY_UPDATED: "Policy",
 };

@@ -70,6 +70,14 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/day", async (req, res) => {
+  try {
+    res.json(await tasks.listMyDay(req.user!.userId, req.query.date));
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 router.post("/", async (req, res) => {
   try {
     res.json(await tasks.proposeTask(req.user!.userId, req.body ?? {}));

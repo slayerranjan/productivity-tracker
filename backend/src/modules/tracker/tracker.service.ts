@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma.js";
 import { onlyPinnedCompany } from "../../lib/deployment.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
+import { cleanRemark, lateRemarksReady, LateRemarkRequired, remarksBySession } from "./lateRemarks.js";
 
 const DEFAULTS = {
   dailyWorkHours: 9,
@@ -156,7 +157,7 @@ export async function getActiveSession(userId: string) {
   return { session: fresh, config: ctx.config, hostsOpenMeeting, projects };
 }
 
-export async function clockIn(userId: string, teamId?: string | null) {
+export async function clockIn(userId: string, teamId?: string | null, lateRemark?: unknown) {
   const ctx = await getContext(userId);
 
   // The project is optional, but if given it must be one of THIS person's own teams.
@@ -214,19 +215,30 @@ export async function clockIn(userId: string, teamId?: string | null) {
   const shiftStartTime = ctx.shift?.startTime ?? null;
   const { wasLateLogin, lateByMinutes } = computeLate(now, shiftStartTime, ctx.config.lateLoginGraceMinutes, ctx.timezone);
 
-  const created = await prisma.workSession.create({
-    data: {
-      platformId: ctx.platformId,
-      userId,
-      date,
-      loginAt: now,
-      status: "ACTIVE",
-      shiftStartTime,
-      wasLateLogin,
-      lateByMinutes,
-      teamId: projectId,
-    },
-  });
+  // After the cut-off a short reason is required (only once the late_remarks table exists). Nothing is created
+  // until it is given, so a refused attempt leaves no half-started day behind.
+  const needsRemark = wasLateLogin && (await lateRemarksReady());
+  const remark = needsRemark ? cleanRemark(lateRemark) : null;
+  if (needsRemark && !remark) throw new LateRemarkRequired(lateByMinutes);
+
+  const sessionData = {
+    platformId: ctx.platformId,
+    userId,
+    date,
+    loginAt: now,
+    status: "ACTIVE" as const,
+    shiftStartTime,
+    wasLateLogin,
+    lateByMinutes,
+    teamId: projectId,
+  };
+  const created = remark
+    ? await prisma.$transaction(async (tx) => {
+        const s = await tx.workSession.create({ data: sessionData });
+        await tx.lateRemark.create({ data: { platformId: ctx.platformId, userId, sessionId: s.id, remark, lateByMinutes } });
+        return s;
+      })
+    : await prisma.workSession.create({ data: sessionData });
 
   return recompute(created.id);
 }
@@ -766,6 +778,7 @@ export async function getTeamLiveStatus(viewerId: string) {
   const byUser = new Map(sessions.map((s) => [s.userId, s]));
   const onLeave = new Set(leaveDays.map((l) => l.userId));
   const now = Date.now();
+  const remarkOf = await remarksBySession(sessions.map((s) => s.id));
 
   return people.map((person) => {
     const s = byUser.get(person.id) ?? null;
@@ -814,6 +827,7 @@ export async function getTeamLiveStatus(viewerId: string) {
       loginAt: s?.loginAt ?? null,
       wasLateLogin: s?.wasLateLogin ?? false,
       lateByMinutes: s?.lateByMinutes ?? 0,
+      lateRemark: s ? remarkOf.get(s.id) ?? null : null,
       productiveSeconds,
       breakSeconds,
       meetingSeconds,
@@ -877,6 +891,8 @@ export async function getHistory(userId: string, fromStr?: string, toStr?: strin
     tasksByDate.get(k)!.push(t);
   }
 
+  const remarkOf = await remarksBySession(sessions.map((s) => s.id));
+
   const rows = sessions.map((s) => {
     const k = key(s.date);
     // Only approved work counts — a proposal the manager never agreed to
@@ -909,6 +925,7 @@ export async function getHistory(userId: string, fromStr?: string, toStr?: strin
       meetingCount: s.meetings.filter((m) => m.approvalStatus === "APPROVED").length,
       wasLateLogin: s.wasLateLogin,
       lateByMinutes: s.lateByMinutes,
+      lateRemark: remarkOf.get(s.id) ?? null,
       autoClosed: s.autoClosed,
       onLeave: leaveByDate.has(k),
       leaveType: leaveByDate.get(k)?.leaveType ?? null,

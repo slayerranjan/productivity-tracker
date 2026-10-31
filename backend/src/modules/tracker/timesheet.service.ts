@@ -21,6 +21,7 @@ import { prisma } from "../../lib/prisma.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { getTeamReport } from "../reports/reports.service.js";
 import { getContext } from "./tracker.service.js";
+import { remarksBySession } from "./lateRemarks.js";
 
 const MAX_DAYS = 93;
 const DAY_MS = 86_400_000;
@@ -66,6 +67,7 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
   }
 
   const sessionByDay = new Map(sessions.map((s) => [iso(s.date), s]));
+  const remarkOf = await remarksBySession(sessions.map((s) => s.id));
   const holidayByDay = new Map(holidays.map((h) => [iso(h.date), h]));
   // One entry per day, as the Reports page computes expected days and leave.
   type Bucket = { key: string; daysExpected: number; daysOnLeave: number };
@@ -101,6 +103,7 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
             meetingSeconds: s.meetingSeconds,
             wasLateLogin: s.wasLateLogin,
             lateByMinutes: s.lateByMinutes,
+            lateRemark: remarkOf.get(s.id) ?? null,
             shiftStartTime: s.shiftStartTime,
             correction: correctedBy.get(s.id) ?? null,
             project: s.team ? { id: s.team.id, name: s.team.name } : null,

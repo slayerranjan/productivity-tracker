@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { useMe } from "./layout";
 import DayRow from "./_timesheet/DayRow";
+import { LateRemarkModal } from "./_timesheet/LateRemarkModal";
 import { EntryLogModal, ScheduleModal } from "./_timesheet/Modals";
 import RequestCorrectionModal from "./_corrections/RequestModal";
 import { SEG_COLOR, buildDayModel } from "./_timesheet/model";
@@ -332,6 +333,8 @@ export default function TodayView() {
     return () => document.removeEventListener("mousedown", away);
   }, [breakOpen]);
 
+  const [lateAsk, setLateAsk] = useState<{ minutes: number; error: string } | null>(null);
+
   async function act(path: string, body?: unknown) {
     setBusy(true);
     setError("");
@@ -411,10 +414,26 @@ export default function TodayView() {
           ? "Finish your current break first"
           : "";
 
-  function clockIn() {
+  // After the late cut-off the server refuses with LATE_REMARK_REQUIRED and nothing is started; the person types a
+  // reason and the same clock-in is sent again with it.
+  async function clockIn(remark?: string) {
     if (busy || running) return;
     void askToNotify();
-    void act("/tracker/clock-in", projectId ? { teamId: projectId } : undefined);
+    setBusy(true);
+    setError("");
+    try {
+      await apiPost("/tracker/clock-in", { ...(projectId ? { teamId: projectId } : {}), ...(remark ? { lateRemark: remark } : {}) });
+      setLateAsk(null);
+      await load();
+      setReloadTs((n) => n + 1);
+    } catch (err) {
+      const e = err as Error & { code?: string; data?: { lateByMinutes?: number } };
+      if (e.code === "LATE_REMARK_REQUIRED" && !remark) setLateAsk({ minutes: e.data?.lateByMinutes ?? 0, error: "" });
+      else if (remark) setLateAsk((cur) => (cur ? { ...cur, error: e.message } : cur));
+      else setError(e.message || "That didn't work");
+    } finally {
+      setBusy(false);
+    }
   }
   function clockOut() {
     if (busy || !canClockOut) return;
@@ -636,7 +655,7 @@ export default function TodayView() {
                     </select>
                   )}
                   {!running ? (
-                    <button disabled={busy} onClick={clockIn} className="rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50">
+                    <button disabled={busy} onClick={() => void clockIn()} className="rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50">
                       {session?.status === "COMPLETED" ? "Clock back in" : "Clock in"}
                     </button>
                   ) : (
@@ -790,6 +809,7 @@ export default function TodayView() {
         </section>
       </div>
 
+      {lateAsk && <LateRemarkModal minutes={lateAsk.minutes} busy={busy} error={lateAsk.error} onSubmit={(r) => void clockIn(r)} onCancel={() => setLateAsk(null)} />}
       {openLog && tsData && (
         <EntryLogModal models={models} tz={tz} selected={openLog === "all" ? null : openLog} rangeLabel={rangeLabel} onClose={() => setOpenLog(null)} />
       )}

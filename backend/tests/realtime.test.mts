@@ -7,7 +7,7 @@
 // (The DATABASE_URL is a dummy: nothing here ever connects to a database.)
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { startRealtime, stopRealtime, emitTaskChange, emitNotificationChange, type SocketUser } from "../src/lib/realtime.js";
+import { startRealtime, stopRealtime, emitTaskChange, emitNotificationChange, emitMeetingChange, type SocketUser } from "../src/lib/realtime.js";
 
 const requireFromFrontend = createRequire(new URL("../../frontend/package.json", import.meta.url));
 const { io: connect } = requireFromFrontend("socket.io-client") as { io: (url: string, opts: object) => any };
@@ -39,13 +39,14 @@ startRealtime(httpServer, {
 await new Promise<void>((r) => httpServer.listen(0, r));
 const URL_ = `http://localhost:${(httpServer.address() as { port: number }).port}`;
 
-type Client = { sock: any; events: any[]; inbox: any[]; ready: number; connectError: string | null };
+type Client = { sock: any; events: any[]; inbox: any[]; meet: any[]; ready: number; connectError: string | null };
 function client(token: string | null, opts: object = {}): Promise<Client> {
   return new Promise((resolve) => {
-    const c: Client = { sock: null, events: [], inbox: [], ready: 0, connectError: null };
+    const c: Client = { sock: null, events: [], inbox: [], meet: [], ready: 0, connectError: null };
     c.sock = connect(URL_, { auth: token === null ? {} : { token }, transports: ["websocket"], reconnectionDelay: 100, reconnectionDelayMax: 300, ...opts });
     c.sock.on("tasks:changed", (e: unknown) => c.events.push(e));
     c.sock.on("notifications:changed", (e: unknown) => c.inbox.push(e));
+    c.sock.on("meetings:changed", (e: unknown) => c.meet.push(e));
     c.sock.on("ready", () => { c.ready += 1; if (c.ready === 1) resolve(c); });
     c.sock.on("connect_error", (e: Error) => { c.connectError = e.message; if (!opts || !(opts as { keepTrying?: boolean }).keepTrying) resolve(c); });
   });
@@ -58,7 +59,7 @@ const none = await client(null);
 ok("no token is refused", none.connectError === "NOT_AUTHENTICATED", none.connectError);
 const bad = await client("not-a-real-token");
 ok("an unknown token is refused", bad.connectError === "NOT_AUTHENTICATED", bad.connectError);
-const urlToken = await new Promise<Client>((resolve) => { const c: Client = { sock: null, events: [], inbox: [], ready: 0, connectError: null }; c.sock = connect(URL_ + "?token=mgrA", { transports: ["websocket"], reconnection: false }); c.sock.on("connect_error", (e: Error) => { c.connectError = e.message; resolve(c); }); c.sock.on("ready", () => resolve(c)); });
+const urlToken = await new Promise<Client>((resolve) => { const c: Client = { sock: null, events: [], inbox: [], meet: [], ready: 0, connectError: null }; c.sock = connect(URL_ + "?token=mgrA", { transports: ["websocket"], reconnection: false }); c.sock.on("connect_error", (e: Error) => { c.connectError = e.message; resolve(c); }); c.sock.on("ready", () => resolve(c)); });
 ok("a token in the URL (not the handshake auth) is not accepted", urlToken.connectError === "NOT_AUTHENTICATED", urlToken.connectError);
 
 // 2. who hears what ---------------------------------------------------------------------------
@@ -149,6 +150,18 @@ await sleep(1200);
 emitNotificationChange(["e1"]);
 await sleep(300);
 ok("after a network drop and reconnect the private inbox works again", e1.inbox.length === 4, e1.inbox.length);
+
+// 7c. in-person meeting participation signals: ONLY the organizer and the person concerned ---------------------------
+for (const c of [mgrA, mgrB, hr, e1, e3, e4]) c.meet.length = 0;
+emitMeetingChange(["e1", "mgrA"], "meeting-1");
+await sleep(300);
+ok("a participation signal reaches the employee concerned and the organizer", e1.meet.length === 1 && mgrA.meet.length === 1, { e1: e1.meet.length, mgrA: mgrA.meet.length });
+ok("...and NOT HR, another manager, or another employee (HR learns nothing about who is in a stand-up)", hr.meet.length === 0 && mgrB.meet.length === 0 && e3.meet.length === 0 && e4.meet.length === 0, { hr: hr.meet.length, mgrB: mgrB.meet.length, e3: e3.meet.length });
+ok("the signal carries only an id, a time and the meeting id (no names, times or durations)", Object.keys(e1.meet[0] ?? {}).sort().join() === "at,eventId,meetingId", Object.keys(e1.meet[0] ?? {}));
+emitMeetingChange([], "meeting-1");
+emitMeetingChange(["e1", "e1", "mgrA"], "meeting-2");
+await sleep(300);
+ok("an empty list is a no-op and a repeated id does not double the signal", e1.meet.length === 2 && mgrA.meet.length === 2, { e1: e1.meet.length, mgrA: mgrA.meet.length });
 
 // 8. emitting never breaks a save --------------------------------------------------------------------------
 let threw = false;

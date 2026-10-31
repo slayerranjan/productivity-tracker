@@ -38,6 +38,8 @@ type PersonRow = {
   daysPresent: number;
   daysOnLeave: number;
   daysAbsent: number;
+  daysNotTracked: number;
+  teamName: string | null;
   lateDays: number;
   lateMinutes: number;
   autoClosedDays: number;
@@ -49,6 +51,9 @@ type PersonRow = {
   taskScore: number;
   tasksTotal: number;
   tasksDone: number;
+  tasksCompleted: number;
+  tasksPending: number;
+  taskCompletion: number;
   alertCount: number;
 };
 
@@ -64,6 +69,9 @@ type BucketRow = {
   meetingSeconds: number;
   targetSeconds: number;
   attainment: number;
+  tasksCompleted: number;
+  tasksPending: number;
+  taskCompletion: number;
   alertCount: number;
 };
 
@@ -80,6 +88,8 @@ type Report = {
     daysPresent: number;
     daysOnLeave: number;
     daysAbsent: number;
+    daysNotTracked: number;
+    managersExcluded: number;
     lateDays: number;
     productiveSeconds: number;
     breakSeconds: number;
@@ -87,6 +97,9 @@ type Report = {
     targetSeconds: number;
     attainment: number;
     taskScore: number;
+    tasksCompleted: number;
+    tasksPending: number;
+    taskCompletion: number;
     alertCount: number;
   };
   people: PersonRow[];
@@ -241,28 +254,30 @@ function SummaryReport() {
       if (groupBy === "person") {
         header = [
           "Name", "Employee code", "Role", "Days expected", "Days present",
-          "Days on leave", "Days absent", "Late days", "Late minutes",
-          "Productive", "Break", "Meetings", "Target", "Attainment %",
+          "Days on leave", "Days absent", "Days not tracked", "Late days", "Late minutes",
+          "Productive", "Break", "Meetings", "Target", "Productivity %",
+          "Tasks completed", "Tasks pending", "Task completion %",
           "Task score %", "Alerts", "Auto-closed days",
         ];
         rows = report.people.map((p) => [
           p.name, p.employeeCode, p.role, p.daysExpected, p.daysPresent,
-          p.daysOnLeave, p.daysAbsent, p.lateDays, p.lateMinutes,
+          p.daysOnLeave, p.daysAbsent, p.daysNotTracked, p.lateDays, p.lateMinutes,
           hm(p.productiveSeconds), hm(p.breakSeconds), hm(p.meetingSeconds),
           hm(p.targetSeconds), Math.round(p.attainment * 100),
+          p.tasksCompleted, p.tasksPending, Math.round(p.taskCompletion * 100),
           Math.round(p.taskScore * 100), p.alertCount, p.autoClosedDays,
         ]);
       } else {
         header = [
           "Period", "People", "Days expected", "Days present", "Days on leave",
           "Late days", "Productive", "Break", "Meetings", "Target",
-          "Attainment %", "Alerts",
+          "Productivity %", "Tasks completed", "Tasks pending", "Task completion %", "Alerts",
         ];
         rows = report.buckets.map((b) => [
           b.key, b.headcount, b.daysExpected, b.daysPresent, b.daysOnLeave,
           b.lateDays, hm(b.productiveSeconds), hm(b.breakSeconds),
           hm(b.meetingSeconds), hm(b.targetSeconds),
-          Math.round(b.attainment * 100), b.alertCount,
+          Math.round(b.attainment * 100), b.tasksCompleted, b.tasksPending, Math.round(b.taskCompletion * 100), b.alertCount,
         ]);
       }
 
@@ -401,7 +416,7 @@ function SummaryReport() {
 
       {/* --- summary tiles ------------------------------------------------ */}
       {t && report && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <Tile label="People" value={String(t.headcount)} sub="in this report" />
           <Tile
             label="Days expected"
@@ -411,18 +426,23 @@ function SummaryReport() {
           <Tile
             label="Days present"
             value={days(t.daysPresent)}
-            sub={`${days(t.daysAbsent)} absent`}
+            sub={`${days(t.daysAbsent)} absent${t.daysNotTracked > 0 ? ` · ${days(t.daysNotTracked)} not tracked` : ""}`}
           />
           <Tile
-            label="Attainment"
+            label="Productivity %"
             value={pct(t.attainment)}
-            sub="productive ÷ expected"
+            sub="productive hours ÷ expected"
             accent={bandClass(t.attainment)}
           />
           <Tile
             label="Productive"
             value={hm(t.productiveSeconds)}
-            sub={`of ${hm(t.targetSeconds)} expected · incl. ${hm(t.meetingSeconds)} meetings`}
+            sub={`of ${hm(t.targetSeconds)} expected · incl. ${hm(t.meetingSeconds)} meetings${t.managersExcluded > 0 ? ` · ${t.managersExcluded} manager${t.managersExcluded === 1 ? "" : "s"} not counted` : ""}`}
+          />
+          <Tile
+            label="Tasks completed"
+            value={String(t.tasksCompleted)}
+            sub={`${t.tasksPending} pending · ${t.tasksCompleted + t.tasksPending > 0 ? pct(t.taskCompletion) : "no tasks"} complete`}
           />
           <Tile
             label="Break"
@@ -471,13 +491,17 @@ function SummaryReport() {
                   <th className="px-4 py-3 text-right">Expected</th>
                   <th className="px-4 py-3 text-right">Present</th>
                   <th className="px-4 py-3 text-right">Leave</th>
-                  <th className="px-4 py-3 text-right">Absent</th>
+                  <th className="px-4 py-3 text-right" title="Days the company was using the tracker and this person did not clock in">Absent</th>
+                  <th className="px-4 py-3 text-right" title="Days nobody in the company clocked in: paid, not counted as absent">Not tracked</th>
                   <th className="px-4 py-3 text-right">Late</th>
                   <th className="px-4 py-3 text-right">Productive</th>
                   <th className="px-4 py-3 text-right">Break</th>
                   <th className="px-4 py-3 text-right">Meetings</th>
-                  <th className="px-4 py-3 text-right">Attainment</th>
-                  <th className="px-4 py-3 text-right">Tasks</th>
+                  <th className="px-4 py-3 text-right" title="Productive hours divided by expected hours">Productivity %</th>
+                  <th className="px-4 py-3 text-right" title="Approved tasks finished and accepted in full">Tasks done</th>
+                  <th className="px-4 py-3 text-right" title="Approved tasks not fully done yet (open, partly done or sent back)">Tasks pending</th>
+                  <th className="px-4 py-3 text-right" title="Done ÷ (done + pending)">Completion</th>
+                  <th className="px-4 py-3 text-right" title="Weighted score of the day's tasks">Task score</th>
                   <th className="px-4 py-3 text-right">Alerts</th>
                 </tr>
               </thead>
@@ -507,6 +531,7 @@ function SummaryReport() {
                         <span className="text-slate-400">0</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">{p.daysNotTracked}</td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {p.lateDays > 0 ? (
                         <span className="text-amber-700">{p.lateDays}</span>
@@ -529,6 +554,11 @@ function SummaryReport() {
                       >
                         {pct(p.attainment)}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium text-emerald-700">{p.tasksCompleted}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-amber-700">{p.tasksPending}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {p.tasksCompleted + p.tasksPending > 0 ? pct(p.taskCompletion) : "—"}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-600">
                       {p.tasksTotal > 0 ? pct(p.taskScore) : "—"}
@@ -553,7 +583,10 @@ function SummaryReport() {
                   <th className="px-4 py-3 text-right">Productive</th>
                   <th className="px-4 py-3 text-right">Break</th>
                   <th className="px-4 py-3 text-right">Meetings</th>
-                  <th className="px-4 py-3 text-right">Attainment</th>
+                  <th className="px-4 py-3 text-right" title="Productive hours divided by expected hours">Productivity %</th>
+                  <th className="px-4 py-3 text-right">Tasks done</th>
+                  <th className="px-4 py-3 text-right">Tasks pending</th>
+                  <th className="px-4 py-3 text-right">Completion</th>
                   <th className="px-4 py-3 text-right">Alerts</th>
                 </tr>
               </thead>
@@ -591,6 +624,11 @@ function SummaryReport() {
                       >
                         {pct(b.attainment)}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium text-emerald-700">{b.tasksCompleted}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-amber-700">{b.tasksPending}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                      {b.tasksCompleted + b.tasksPending > 0 ? pct(b.taskCompletion) : "—"}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-500">
                       {b.alertCount}

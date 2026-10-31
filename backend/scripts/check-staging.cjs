@@ -31,13 +31,55 @@ check("TEST_DATABASE_URL is filled in", !!test, "paste the same direct string");
 check("TEST_DATABASE_URL equals DIRECT_URL (same branch)", !!test && test === direct, "they must be the same host");
 check("pooled and direct are the SAME branch (hosts differ only by '-pooler')", !!direct && !!pooled && pooled.replace("-pooler", "") === direct, `direct ${short(direct)} vs pooled ${short(pooled)}`);
 check("none of them is the production database", ![direct, pooled, test].includes(prodHost) && !/ep-crimson-queen/.test(`${direct}${pooled}${test}`), "this is the PRODUCTION host - use the branch");
+const passOf = (u) => { try { return decodeURIComponent(new URL(u).password); } catch { return ""; } };
+const prodPass = passOf(prod.DIRECT_URL || prod.DATABASE_URL || "");
+const stagingPass = passOf(st.DIRECT_URL || "");
+check(
+  "staging database PASSWORD differs from production's",
+  !!direct && !!stagingPass && !!prodPass && stagingPass !== prodPass,
+  "a new Neon branch inherits production's role password: on the STAGING branch open Roles, reset the password of the role you use (or create a new role), then paste the new strings"
+);
 check("mail cannot leave this machine (no Brevo key, SMTP is localhost)", !st.BREVO_API_KEY && ["localhost", "127.0.0.1"].includes(st.SMTP_HOST) && !st.SMTP_USER && !st.SMTP_PASS, "clear BREVO_API_KEY, SMTP_USER and SMTP_PASS; SMTP_HOST=localhost");
 check("staging uses its own JWT secret", !!st.JWT_SECRET && st.JWT_SECRET !== prod.JWT_SECRET, "must differ from production");
-check("backend port is not the production port", st.PORT === "5002", "use 5002");
+// Any port is fine as long as it is not production's (5001, or whatever backend/.env says); 5002 is often taken by another process.
+check("backend port is set and is not the production port", !!st.PORT && /^[0-9]+$/.test(st.PORT) && st.PORT !== String(prod.PORT || "5001") && st.PORT !== "5001", "use a port other than production's, for example 5012");
 let ignored = false;
 try { execSync("git check-ignore -q backend/.env.staging", { cwd: path.join(__dirname, "..", ".."), stdio: "ignore" }); ignored = true; } catch { /* not ignored */ }
 check("Git ignores backend/.env.staging", ignored, "add .env.* to .gitignore");
 
+async function live() {
+  if (bad) {
+    console.log("\nLive connection test skipped until the items above are fixed.");
+    return;
+  }
+  let Client;
+  try { ({ Client } = require("pg")); } catch { check("pg is installed for the live test", false, "npm install in backend/"); return; }
+  const c = new Client({ connectionString: st.TEST_DATABASE_URL, connectionTimeoutMillis: 15000 });
+  try {
+    await c.connect();
+    const r = (await c.query("select current_database() as db, current_setting('neon.endpoint_id', true) as ep")).rows[0];
+    check("connects to the staging branch", true, "");
+    // Neon names the compute endpoint in the host (ep-xxxx-xxxx-xxxxxxxx). If the server reports its own endpoint id,
+    // it must be the one in the URL we connected to, and it must not be production's.
+    if (r.ep) {
+      const hostEp = direct.split(".")[0].replace("-pooler", "");
+      check("the server that answered IS the staging endpoint", r.ep === hostEp, "the answering endpoint does not match the staging URL");
+      const prodEp = prodHost ? prodHost.split(".")[0].replace("-pooler", "") : "";
+      check("...and is not the production endpoint", r.ep !== prodEp, "this is PRODUCTION");
+    } else {
+      console.log("note  the server does not report its endpoint id; the host-name checks above are what prove it is staging");
+    }
+    const n = (await c.query("select count(*)::int as n from information_schema.tables where table_schema = 'public'")).rows[0].n;
+    console.log(`      database "${r.db}" has ${n} tables in schema public (a fresh copy of production's structure is expected)`);
+  } catch (e) {
+    check("connects to the staging branch", false, `${e.code || "error"}: ${String(e.message).replace(/postgres(ql)?:\/\/\S+/gi, "[url hidden]").slice(0, 120)}`);
+  } finally {
+    await c.end().catch(() => {});
+  }
+}
+
 console.log(`\nhosts (first 12 characters only): direct ${short(direct)} | pooled ${short(pooled)} | production ${short(prodHost)}`);
-console.log(bad ? `\n${bad} thing(s) to fix before running anything.` : "\nAll good. Tell me and I will start (nothing has been run yet).");
-process.exit(bad ? 1 : 0);
+live().then(() => {
+  console.log(bad ? `\n${bad} thing(s) to fix before running anything.` : "\nAll good. Tell me and I will start (nothing has been run yet).");
+  process.exit(bad ? 1 : 0);
+});

@@ -9,6 +9,8 @@ import { apiGet, apiPost, clearToken, getToken } from "@/lib/api";
 export default function ChangePasswordPage() {
   const router = useRouter();
   const [name, setName] = useState("");
+  // true = HR/the system made them come here (no way out until they choose a password); false = they opened it themselves.
+  const [forced, setForced] = useState(true);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -20,8 +22,11 @@ export default function ChangePasswordPage() {
       router.replace("/login");
       return;
     }
-    apiGet<{ firstName: string }>("/auth/me")
-      .then((m) => setName(m.firstName))
+    apiGet<{ firstName: string; mustChangePassword?: boolean }>("/auth/me")
+      .then((m) => {
+        setName(m.firstName);
+        setForced(m.mustChangePassword !== false);
+      })
       .catch(() => router.replace("/login"));
   }, [router]);
 
@@ -63,6 +68,18 @@ export default function ChangePasswordPage() {
     <main className="flex min-h-screen items-center justify-center bg-[#F6F7FE] px-4">
       <div className="w-full max-w-sm">
         <div className="mb-7">
+          {!forced && (
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              aria-label="Cancel and go back"
+              className="float-right -mr-1 rounded-full p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-slate-700"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="m5 5 10 10M15 5 5 15" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
           <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="h-5 w-5">
               <rect x="4" y="10" width="16" height="10" rx="2" />
@@ -70,11 +87,12 @@ export default function ChangePasswordPage() {
             </svg>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            {name ? `Welcome, ${name}` : "Set your password"}
+            {forced ? (name ? `Welcome, ${name}` : "Set your password") : "Change your password"}
           </h1>
           <p className="mt-1.5 text-sm text-slate-500">
-            Choose your own password before you start. The temporary one stops
-            working straight away, so nobody else can use it.
+            {forced
+              ? "Choose your own password before you start. The temporary one stops working straight away, so nobody else can use it."
+              : "Enter your current password, then choose a new one."}
           </p>
         </div>
 
@@ -84,7 +102,7 @@ export default function ChangePasswordPage() {
         >
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
-              Temporary password
+              {forced ? "Temporary password" : "Current password"}
             </label>
             <input
               type="password"
@@ -137,19 +155,30 @@ export default function ChangePasswordPage() {
             disabled={busy || !current || !next || !confirm}
             className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
           >
-            {busy ? "Saving..." : "Set password and continue"}
+            {busy ? "Saving..." : forced ? "Set password and continue" : "Change password"}
           </button>
+          {!forced && (
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              className="w-full rounded-xl border border-indigo-100 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          )}
         </form>
 
-        <button
-          onClick={() => {
-            clearToken();
-            router.replace("/login");
-          }}
-          className="mt-5 w-full text-center text-xs text-slate-400 hover:text-slate-600"
-        >
-          Sign out
-        </button>
+        {forced && (
+          <button
+            onClick={() => {
+              clearToken();
+              router.replace("/login");
+            }}
+            className="mt-5 w-full text-center text-xs text-slate-400 hover:text-slate-600"
+          >
+            Sign out
+          </button>
+        )}
       </div>
     </main>
   );

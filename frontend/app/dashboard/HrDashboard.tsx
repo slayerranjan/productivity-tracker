@@ -277,8 +277,10 @@ export default function HrDashboard() {
     [report.data]
   );
 
+  // "Waiting for you" = still open AND the last word is the raiser's (or nobody has answered yet). Once staff have
+  // replied, the ticket stays open until it is resolved but is no longer waiting on anyone here.
   const pendingTickets = (tickets.data?.tickets ?? []).filter(
-    (t) => t.status === "OPEN" || t.status === "IN_PROGRESS"
+    (t) => (t.status === "OPEN" || t.status === "IN_PROGRESS") && t.awaitingReply !== false
   );
   const overdueTickets = pendingTickets.filter((t) => t.isOverdue).length;
   const docsToReview = (candidates.data?.candidates ?? [])
@@ -394,7 +396,7 @@ export default function HrDashboard() {
                   {docsToReview > 0 && <ApprovalRow href="/dashboard/candidates" label="Joiner documents" count={docsToReview} tone="sky" />}
                   {pendingTickets.length > 0 && <ApprovalRow href="/dashboard/tickets" label="Open tickets" count={pendingTickets.length} tone="amber" />}
                   {corrections > 0 && <ApprovalRow href="/dashboard/corrections" label="Attendance corrections" count={corrections} tone="indigo" />}
-                  {visibleAlerts.length > 0 && <ApprovalRow href="/dashboard/team" label="Alerts today" count={visibleAlerts.length} tone="rose" />}
+                  {visibleAlerts.length > 0 && <ApprovalRow href="/dashboard/team-attendance" label="Alerts today" count={visibleAlerts.length} tone="rose" />}
                 </>
               )}
             </div>
@@ -781,7 +783,7 @@ export default function HrDashboard() {
             title="Recent Employee Activity"
             sub="Today"
             action={
-              <Link href="/dashboard/team" className="rounded-lg bg-[#EEF0FD] px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100">
+              <Link href="/dashboard/team-attendance" className="rounded-lg bg-[#EEF0FD] px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100">
                 Live team
               </Link>
             }
