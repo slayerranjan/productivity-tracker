@@ -6,12 +6,14 @@ import { auditNote } from "../../lib/auditContext.js";
 import { sendMail } from "../../lib/mailer.js";
 import { correctionSubmittedEmail, correctionDecidedEmail } from "../../lib/emails.js";
 import { computeLate, getContext, recompute } from "../tracker/tracker.service.js";
+import { ownerCodes, viewerIsOwner } from "../../lib/owner.js";
+import { getPinnedCompany } from "../../lib/deployment.js";
 
 // ---------------------------------------------------------------------------
 // ATTENDANCE CORRECTIONS
 //
 // An employee ASKS. Nothing about attendance changes on submission. HR/Admin of
-// the same company decides. Only on approval is the work session changed, and
+// the same company decides (an owner who is HR/Admin, via OWNER_CODES, decides for every company; off in a pinned deployment). Only on approval is the work session changed, and
 // then in ONE transaction: claim the request, change the session, recompute the
 // totals and the late flag with the existing rules, and write the audit row.
 // If any step fails, nothing is saved and the request stays pending.
@@ -54,10 +56,16 @@ async function person(userId: string) {
   return u;
 }
 
+// Owner reach: sees every company. A deployment pinned to one company switches it off.
+async function ownerReach(viewerId: string) {
+  return (await viewerIsOwner(viewerId)) && !(await getPinnedCompany());
+}
+const scopeOf = (v: { platformId: string }, owner: boolean) => (owner ? {} : { platformId: v.platformId });
+
 async function decider(viewerId: string) {
   const v = await person(viewerId);
   if (!DECIDERS.includes(String(v.role))) throw new Error("NOT_ALLOWED");
-  return v;
+  return { ...v, owner: await ownerReach(viewerId) };
 }
 
 // --- the rules that decide whether a requested change is possible --------------------
@@ -186,8 +194,14 @@ export async function submitRequest(
   const name = `${ctx.user.firstName} ${ctx.user.lastName}`.trim();
   const recorded = existing ? `In ${clock(existing.loginAt, tz)} / Out ${clock(existing.logoutAt, tz)}` : "No attendance recorded";
   const requested = `In ${reqLogin ? clock(reqLogin, tz) : "unchanged"} / Out ${reqLogout ? clock(reqLogout, tz) : "unchanged"}`;
+  const owners = (await getPinnedCompany()) ? [] : ownerCodes();
   const hr = await prisma.user.findMany({
-    where: { platformId: ctx.platformId, role: { in: ["HR", "ADMIN"] }, status: "ACTIVE", id: { not: userId } },
+    where: {
+      role: { in: ["HR", "ADMIN"] },
+      status: "ACTIVE",
+      id: { not: userId },
+      OR: [{ platformId: ctx.platformId }, ...(owners.length ? [{ employeeCode: { in: owners } }] : [])],
+    },
     select: { id: true, email: true },
   });
   const notified = await notifyUsers({
@@ -254,7 +268,7 @@ export async function cancelRequest(userId: string, id: string) {
 
 export async function pendingCount(viewerId: string) {
   const v = await decider(viewerId);
-  return { pending: await prisma.attendanceCorrectionRequest.count({ where: { platformId: v.platformId, status: "PENDING" } }) };
+  return { pending: await prisma.attendanceCorrectionRequest.count({ where: { ...scopeOf(v, v.owner), status: "PENDING" } }) };
 }
 
 export async function listForReview(
@@ -270,7 +284,7 @@ export async function listForReview(
   const teamId = f.teamId ? String(f.teamId) : "";
 
   const where = {
-    platformId: v.platformId,
+    ...scopeOf(v, v.owner),
     ...(status ? { status } : {}),
     ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     user: {
@@ -289,8 +303,8 @@ export async function listForReview(
         reviewedBy: { select: { firstName: true, lastName: true } },
       },
     }),
-    prisma.attendanceCorrectionRequest.groupBy({ by: ["status"], where: { platformId: v.platformId }, _count: true }),
-    prisma.team.findMany({ where: { platformId: v.platformId, isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.attendanceCorrectionRequest.groupBy({ by: ["status"], where: scopeOf(v, v.owner), _count: true }),
+    prisma.team.findMany({ where: { ...scopeOf(v, v.owner), isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const counts: Record<string, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0 };
   for (const g of grouped) counts[String(g.status)] = g._count;
@@ -309,8 +323,9 @@ export async function listForReview(
 export async function details(viewerId: string, id: string) {
   const v = await person(viewerId);
   const isDecider = DECIDERS.includes(String(v.role));
+  const owner = isDecider && (await ownerReach(viewerId));
   const r = await prisma.attendanceCorrectionRequest.findFirst({
-    where: { id, platformId: v.platformId, ...(isDecider ? {} : { userId: v.id }) },
+    where: { id, ...scopeOf(v, owner), ...(isDecider ? {} : { userId: v.id }) },
     include: {
       user: { select: { id: true, firstName: true, lastName: true, employeeCode: true, designation: true } },
       reviewedBy: { select: { firstName: true, lastName: true } },
@@ -335,8 +350,9 @@ export async function details(viewerId: string, id: string) {
 export async function openAttachment(viewerId: string, id: string) {
   const v = await person(viewerId);
   const isDecider = DECIDERS.includes(String(v.role));
+  const owner = isDecider && (await ownerReach(viewerId));
   const r = await prisma.attendanceCorrectionRequest.findFirst({
-    where: { id, platformId: v.platformId, ...(isDecider ? {} : { userId: v.id }) },
+    where: { id, ...scopeOf(v, owner), ...(isDecider ? {} : { userId: v.id }) },
     select: { attachmentKey: true, attachmentName: true },
   });
   if (!r?.attachmentKey) throw new Error("NOT_FOUND");
@@ -349,7 +365,7 @@ export async function decide(viewerId: string, id: string, decision: unknown, co
   const text = String(comment ?? "").trim().slice(0, 500) || null;
   if (decision === "REJECT" && (!text || text.length < 3)) throw new Error("COMMENT_REQUIRED");
 
-  const req = await prisma.attendanceCorrectionRequest.findFirst({ where: { id, platformId: v.platformId } });
+  const req = await prisma.attendanceCorrectionRequest.findFirst({ where: { id, ...scopeOf(v, v.owner) } });
   if (!req) throw new Error("NOT_FOUND");
   if (req.userId === v.id) throw new Error("OWN_REQUEST");
   if (String(req.status) !== "PENDING") throw new Error("ALREADY_DECIDED");
@@ -366,7 +382,7 @@ export async function decide(viewerId: string, id: string, decision: unknown, co
     async (tx) => {
       // 1. Claim the request. Only one reviewer can move it out of PENDING; the other gets ALREADY_DECIDED.
       const claimed = await tx.attendanceCorrectionRequest.updateMany({
-        where: { id, platformId: v.platformId, status: "PENDING" },
+        where: { id, platformId: req.platformId, status: "PENDING" },
         data: { status: approve ? "APPROVED" : "REJECTED", reviewedById: v.id, reviewedAt: new Date(), reviewComment: text },
       });
       if (claimed.count === 0) throw new Error("ALREADY_DECIDED");

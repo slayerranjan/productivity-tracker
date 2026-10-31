@@ -1,7 +1,8 @@
 import { prisma } from "../../lib/prisma.js";
 import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { auditNote } from "../../lib/auditContext.js";
-import { viewerIsOwner } from "../../lib/owner.js";
+import { ownerCodes, viewerIsOwner } from "../../lib/owner.js";
+import { notifyUsers } from "../../lib/notify.js";
 import { getPinnedCompany } from "../../lib/deployment.js";
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,25 @@ function requestView(r: {
   };
 }
 
+// Who is told about a new request: HR/Admin of the person's company, plus owners who are HR/Admin (they decide every company's
+// requests). Never the requester. A pinned deployment drops the owners from other companies.
+async function deciderIdsFor(platformId: string, exceptUserId: string) {
+  const pinned = await getPinnedCompany();
+  const owners = pinned ? [] : ownerCodes();
+  const rows = await prisma.user.findMany({
+    where: {
+      role: { in: ["HR", "ADMIN"] },
+      status: "ACTIVE",
+      id: { not: exceptUserId },
+      OR: [{ platformId }, ...(owners.length ? [{ employeeCode: { in: owners } }] : [])],
+    },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+const dayLabel = (r: { fromDate: Date; toDate: Date }) => (iso(r.fromDate) === iso(r.toDate) ? iso(r.fromDate) : `${iso(r.fromDate)} to ${iso(r.toDate)}`);
+
 // --- employee ----------------------------------------------------------------
 
 export async function requestLeave(
@@ -182,6 +202,23 @@ export async function requestLeave(
     },
     include: { decidedBy: deciderSelect },
   });
+
+  // Tell the people who decide. A notification problem must never fail the request.
+  try {
+    const person = await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, employeeCode: true } });
+    const name = `${person?.firstName ?? ""} ${person?.lastName ?? ""}`.trim() || "An employee";
+    await notifyUsers({
+      platformId: me.platformId,
+      userIds: await deciderIdsFor(me.platformId, userId),
+      type: "LEAVE_REQUESTED",
+      title: `Leave request: ${name}`,
+      body: `${name} (${person?.employeeCode ?? "no ID"}) asked for ${isHalfDay ? "a half day" : `${created.dayCount} day(s)`} of ${leaveType.toLowerCase()} leave, ${dayLabel(created)}. Reason: ${reason}`,
+      link: "/dashboard/leave",
+      data: { requestId: created.id },
+    });
+  } catch (e) {
+    console.error("[leave] could not notify deciders:", e);
+  }
   return requestView(created);
 }
 
@@ -257,6 +294,23 @@ export async function listRequests(viewerId: string, status?: unknown) {
   };
 }
 
+// The employee hears the answer in their bell. Never allowed to fail the decision.
+async function tellRequester(r: { id: string; platformId: string; userId: string; fromDate: Date; toDate: Date }, outcome: "APPROVED" | "REJECTED", note: string | null) {
+  try {
+    await notifyUsers({
+      platformId: r.platformId,
+      userIds: [r.userId],
+      type: "LEAVE_DECIDED",
+      title: outcome === "APPROVED" ? "Leave approved" : "Leave not approved",
+      body: `Your leave for ${dayLabel(r)} was ${outcome === "APPROVED" ? "approved" : "not approved"}.${note ? ` HR comment: ${note}` : ""}`,
+      link: "/dashboard/leave",
+      data: { requestId: r.id },
+    });
+  } catch (e) {
+    console.error("[leave] could not notify requester:", e);
+  }
+}
+
 export async function decideRequest(viewerId: string, requestId: string, decision: unknown, note: unknown) {
   const v = await decider(viewerId);
   if (decision !== "APPROVE" && decision !== "REJECT") throw new Error("BAD_DECISION");
@@ -274,6 +328,7 @@ export async function decideRequest(viewerId: string, requestId: string, decisio
     });
     if (res.count === 0) throw new Error("ALREADY_DECIDED");
     auditNote({ recordType: "LeaveRequest", recordId: r.id, targetUserId: r.userId, before: { status: "PENDING" }, after: { status: "REJECTED", decisionNote: text }, summary: `Rejected leave ${iso(r.fromDate)} to ${iso(r.toDate)}` });
+    await tellRequester(r, "REJECTED", text);
     return { status: "REJECTED" };
   }
 
@@ -312,6 +367,7 @@ export async function decideRequest(viewerId: string, requestId: string, decisio
     }
   });
   auditNote({ recordType: "LeaveRequest", recordId: r.id, targetUserId: r.userId, before: { status: "PENDING" }, after: { status: "APPROVED", days: dates.length, decisionNote: text }, summary: `Approved leave ${iso(r.fromDate)} to ${iso(r.toDate)} (${dates.length} working days)` });
+  await tellRequester(r, "APPROVED", text);
   return { status: "APPROVED", days: dates.length };
 }
 

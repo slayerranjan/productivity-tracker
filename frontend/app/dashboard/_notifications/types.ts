@@ -12,6 +12,8 @@ export const TYPE_LABEL: Record<string, string> = {
   TASK_PROPOSAL_RETURNED: "Task sent back",
   TASK_APPROVED: "Work approved",
   TASK_REJECTED: "Work not accepted",
+  LEAVE_REQUESTED: "Leave request",
+  LEAVE_DECIDED: "Leave answer",
   CORRECTION_SUBMITTED: "Attendance correction",
   CORRECTION_DECIDED: "Attendance correction",
   MEETING_INVITE: "Meeting",
@@ -27,7 +29,7 @@ export const TYPE_LABEL: Record<string, string> = {
 export const labelOf = (type: string) => TYPE_LABEL[type] ?? "Notification";
 
 // Events important enough to pop up on screen when they arrive. Everything still lands in the bell either way.
-export const POPUP_TYPES = new Set(["TASK_ASSIGNED", "TASK_PROPOSED", "TASK_SUBMITTED", "TASK_PROPOSAL_APPROVED", "TASK_PROPOSAL_RETURNED", "TASK_APPROVED", "TASK_REJECTED", "POLICY_PUBLISHED", "POLICY_UPDATED", "MEETING_INVITED", "MEETING_UPDATED", "MEETING_PARTICIPATION_CORRECTED"]);
+export const POPUP_TYPES = new Set(["TASK_ASSIGNED", "TASK_PROPOSED", "TASK_SUBMITTED", "TASK_PROPOSAL_APPROVED", "TASK_PROPOSAL_RETURNED", "TASK_APPROVED", "TASK_REJECTED", "POLICY_PUBLISHED", "POLICY_UPDATED", "MEETING_INVITED", "MEETING_UPDATED", "MEETING_PARTICIPATION_CORRECTED", "LEAVE_REQUESTED", "LEAVE_DECIDED"]);
 
 export const ago = (iso: string) => {
   const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));

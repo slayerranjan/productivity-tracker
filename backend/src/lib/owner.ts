@@ -14,11 +14,14 @@
 import { prisma } from "./prisma.js";
 import { getPinnedCompany } from "./deployment.js";
 
-export async function viewerIsOwner(viewerId: string): Promise<boolean> {
-  const codes = String(process.env.OWNER_CODES ?? "")
+export const ownerCodes = (): string[] =>
+  String(process.env.OWNER_CODES ?? "")
     .split(",")
     .map((c) => c.trim().toUpperCase())
     .filter(Boolean);
+
+export async function viewerIsOwner(viewerId: string): Promise<boolean> {
+  const codes = ownerCodes();
   if (codes.length === 0) return false;
 
   const me = await prisma.user.findUnique({
