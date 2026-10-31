@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { API_BASE, apiGet, getToken } from "@/lib/api";
 
 // Shared by the Policies & induction screens: types as the API sends them, and a few small helpers.
@@ -51,6 +51,14 @@ export type Tracking = {
   teams: { id: string; name: string }[]; policies: { id: string; title: string }[]; people: { id: string; name: string; employeeCode: string | null }[];
   summary: { total: number; acknowledged: number; opened: number; pending: number; completionPercent: number | null }; truncated: boolean; rows: TrackRow[];
 };
+
+// The company an owner HR/Admin chose to manage (null = their own). Only the manage / acknowledgments screens and a policy opened from
+// them provide it; "Policies to read" never does, so an owner reads and confirms policies as themselves.
+export const CompanyContext = createContext<string | null>(null);
+export const useCompany = () => useContext(CompanyContext);
+export const withCompany = (path: string, company: string | null) =>
+  company ? `${path}${path.includes("?") ? "&" : "?"}company=${encodeURIComponent(company)}` : path;
+export const linkTo = (path: string, company: string | null) => withCompany(path, company);
 
 export const card = "rounded-2xl bg-white shadow-[var(--shadow-card)]";
 export const field = "w-full rounded-xl border border-indigo-100 bg-white px-3 py-2.5 text-sm text-slate-700";

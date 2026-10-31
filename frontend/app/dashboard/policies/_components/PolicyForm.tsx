@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { apiPatch, apiPost } from "@/lib/api";
 import { Modal } from "../../_employees/Modal";
-import { field, readFile, type Detail, type Manage } from "../_lib";
+import { field, readFile, useCompany, withCompany, type Detail, type Manage } from "../_lib";
 
 // One form, three jobs:
 //   create  - a new policy, saved as a DRAFT (nothing is visible to employees until HR publishes it)
@@ -17,6 +17,7 @@ const TYPE_LABEL: Record<string, string> = { PERMANENT: "Permanent", PROBATION: 
 const ROLE_LABEL: Record<string, string> = { EMPLOYEE: "Employees", MANAGER: "Managers", HR: "HR", ADMIN: "Admins" };
 
 export default function PolicyForm({ mode, setup, policy, onClose, onDone }: { mode: Mode; setup: Setup; policy?: Detail; onClose: () => void; onDone: (id: string, message: string) => void }) {
+  const co = useCompany();
   const hr = policy?.hr;
   const [title, setTitle] = useState(policy?.title ?? "");
   const [description, setDescription] = useState(policy?.description ?? "");
@@ -43,7 +44,7 @@ export default function PolicyForm({ mode, setup, policy, onClose, onDone }: { m
     const name = newCategory.trim();
     if (!name) return;
     try {
-      const res = await apiPost<{ categories: string[] }>("/policies/categories", { name });
+      const res = await apiPost<{ categories: string[] }>(withCompany("/policies/categories", co), { name });
       setCategories(res.categories);
       setCategory(name);
       setNewCategory("");
@@ -63,13 +64,13 @@ export default function PolicyForm({ mode, setup, policy, onClose, onDone }: { m
       const upload = file ? { fileName: file.name, data: await readFile(file), mimeType: file.type } : {};
       const audience = everyone ? { teamIds: [], employmentTypes: [], roles: [] } : { teamIds: teams, employmentTypes: types, roles };
       if (mode === "create") {
-        const res = await apiPost<{ id: string }>("/policies", { ...upload, title, description, category, versionLabel: label, effectiveDate: effective || null, isMandatory: mandatory, allowDownload, audience });
+        const res = await apiPost<{ id: string }>(withCompany("/policies", co), { ...upload, title, description, category, versionLabel: label, effectiveDate: effective || null, isMandatory: mandatory, allowDownload, audience });
         onDone(res.id, "Saved as a draft. Employees cannot see it until you publish it.");
       } else if (mode === "edit" && policy) {
-        await apiPatch(`/policies/${policy.id}`, { ...upload, title, description, category, versionLabel: label, effectiveDate: effective || null, isMandatory: mandatory, allowDownload, audience });
+        await apiPatch(withCompany(`/policies/${policy.id}`, co), { ...upload, title, description, category, versionLabel: label, effectiveDate: effective || null, isMandatory: mandatory, allowDownload, audience });
         onDone(policy.id, "Draft saved.");
       } else if (policy) {
-        await apiPost(`/policies/${policy.id}/versions`, { ...upload, versionLabel: label, changeNote: note, requiresAck });
+        await apiPost(withCompany(`/policies/${policy.id}/versions`, co), { ...upload, versionLabel: label, changeNote: note, requiresAck });
         onDone(policy.id, "New version saved. It stays unpublished until you publish it; employees still see the current version.");
       }
     } catch (e) {

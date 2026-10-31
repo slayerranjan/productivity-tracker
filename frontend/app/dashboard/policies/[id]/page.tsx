@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { usePolicyRealtime } from "@/lib/realtime";
 import { useMe } from "../../layout";
 import { Modal } from "../../_employees/Modal";
 import PolicyForm from "../_components/PolicyForm";
-import { card, downloadFile, fetchBlobUrl, field, fmtDate, fmtDateTime, STATUS_CHIP, STATUS_LABEL, useApi, useFallbackPoll, type Detail, type Manage, type Note } from "../_lib";
+import { card, downloadFile, fetchBlobUrl, field, fmtDate, fmtDateTime, STATUS_CHIP, STATUS_LABEL, useApi, useFallbackPoll, CompanyContext, useCompany, withCompany, type Detail, type Manage, type Note } from "../_lib";
 
 // One policy: read it, then confirm. HR/Admin also see its status, versions, review notes and can publish.
 
@@ -26,7 +26,8 @@ function Viewer({ id, version, onViewed }: { id: string; version?: number; onVie
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState("");
   const told = useRef("");
-  const qs = version === undefined ? "" : `?version=${version}`;
+  const co = useCompany();
+  const qs = withCompany(version === undefined ? "" : `?version=${version}`, co);
 
   useEffect(() => {
     let live = true;
@@ -73,14 +74,25 @@ function Viewer({ id, version, onViewed }: { id: string; version?: number; onVie
   return <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">This file type cannot be shown in the page. Use Download to open it.</p>;
 }
 
+// An owner HR/Admin opening another company's policy arrives with ?company=<id>; every request on this page then carries it.
 export default function PolicyPage() {
+  const company = useSearchParams().get("company");
+  return (
+    <CompanyContext.Provider value={company}>
+      <PolicyPageInner />
+    </CompanyContext.Provider>
+  );
+}
+
+function PolicyPageInner() {
   const { id } = useParams<{ id: string }>();
+  const co = useCompany();
   const me = useMe();
   const isHr = me?.role === "HR" || me?.role === "ADMIN";
   const [reload, setReload] = useState(0);
   const bump = useCallback(() => setReload((n) => n + 1), []);
-  const { data: p, error } = useApi<Detail>(`/policies/${id}`, reload);
-  const manage = useApi<Manage>(isHr ? "/policies/manage" : null, reload);
+  const { data: p, error } = useApi<Detail>(withCompany(`/policies/${id}`, co), reload);
+  const manage = useApi<Manage>(isHr ? withCompany("/policies/manage", co) : null, reload);
   const { connected } = usePolicyRealtime(bump);
   useFallbackPoll(connected, bump);
 
@@ -160,7 +172,7 @@ export default function PolicyPage() {
               </select>
             )}
             {canDownload ? (
-              <button onClick={() => downloadFile(`/policies/${id}/file?download=1${dl}`, shown?.fileName ?? p.fileName).catch((e: Error) => setErr(e.message))} className="rounded-xl border border-indigo-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Download original</button>
+              <button onClick={() => downloadFile(withCompany(`/policies/${id}/file?download=1${dl}`, co), shown?.fileName ?? p.fileName).catch((e: Error) => setErr(e.message))} className="rounded-xl border border-indigo-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Download original</button>
             ) : (
               <span className="text-xs text-slate-400">Download is switched off for this policy</span>
             )}
@@ -186,7 +198,7 @@ export default function PolicyPage() {
               </label>
               <button
                 disabled={!confirmed || !p.my.opened || busy}
-                onClick={() => run(async () => { await apiPost(`/policies/${id}/acknowledge`, { confirmed: true }); setConfirmed(false); }, "Your acknowledgment has been recorded successfully.")}
+                onClick={() => run(async () => { await apiPost(withCompany(`/policies/${id}/acknowledge`, co), { confirmed: true }); setConfirmed(false); }, "Your acknowledgment has been recorded successfully.")}
                 className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Saving…" : "Confirm Acknowledgment"}
@@ -215,9 +227,9 @@ export default function PolicyPage() {
               {(p.status === "DRAFT" || (p.status === "PUBLISHED" && draftVersion)) && <button onClick={() => setPublishing(true)} disabled={busy} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">Publish{draftVersion ? ` version ${draftVersion.label}` : ""}</button>}
               {p.status === "PUBLISHED" && !draftVersion && <button onClick={() => setEditing("version")} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Upload a new version</button>}
               {p.status === "ARCHIVED" ? (
-                <button disabled={busy} onClick={() => run(() => apiPost(`/policies/${id}/restore`), "Policy restored.")} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Restore</button>
+                <button disabled={busy} onClick={() => run(() => apiPost(withCompany(`/policies/${id}/restore`, co)), "Policy restored.")} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Restore</button>
               ) : (
-                <button disabled={busy} onClick={() => run(() => apiPost(`/policies/${id}/archive`), "Policy archived. It stays on record for HR.")} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Archive</button>
+                <button disabled={busy} onClick={() => run(() => apiPost(withCompany(`/policies/${id}/archive`, co)), "Policy archived. It stays on record for HR.")} className="rounded-xl border border-indigo-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Archive</button>
               )}
             </div>
             <dl className="mt-5 grid grid-cols-3 gap-3 text-sm">
@@ -269,9 +281,10 @@ export default function PolicyPage() {
 function NoteItem({ n, policyId, disabled, onChanged, onError }: { n: Note; policyId: string; disabled: boolean; onChanged: (m: string) => void; onError: (m: string) => void }) {
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState("");
+  const co = useCompany();
   async function set(status: "RESOLVED" | "DISMISSED" | "OPEN", note?: string) {
     try {
-      await apiPost(`/policies/${policyId}/notes/${n.id}`, { status, note });
+      await apiPost(withCompany(`/policies/${policyId}/notes/${n.id}`, co), { status, note });
       setDismissing(false);
       onChanged(status === "OPEN" ? "Note re-opened." : status === "RESOLVED" ? "Note marked as resolved." : "Note dismissed.");
     } catch (e) {
@@ -318,12 +331,13 @@ function PublishDialog({ p, onClose, onDone }: { p: Detail; onClose: () => void;
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const co = useCompany();
 
   async function go() {
     setBusy(true);
     setError("");
     try {
-      const r = await apiPost<{ version: string; notified: number }>(`/policies/${p.id}/publish`, { confirm: true, acknowledgeNotes: reviewed, effectiveDate: effective || undefined, ...(first ? {} : { requiresAck: again }) });
+      const r = await apiPost<{ version: string; notified: number }>(withCompany(`/policies/${p.id}/publish`, co), { confirm: true, acknowledgeNotes: reviewed, effectiveDate: effective || undefined, ...(first ? {} : { requiresAck: again }) });
       onDone(`Published version ${r.version}. ${r.notified} ${r.notified === 1 ? "person was" : "people were"} notified.`);
     } catch (e) {
       setError((e as Error).message);
