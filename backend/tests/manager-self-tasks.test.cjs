@@ -128,6 +128,21 @@ const add = (s, n) => new Date(new Date(s + "T00:00:00Z").getTime() + n * 864e5)
   ok("and the team totals leave the manager out", rep.b.totals.managersExcluded >= 1);
 
   console.log("\n## 7. Removing a task");
+  console.log("## 6b. Nobody can assign work to a manager (checked on the server)");
+  const M2 = await mk("SLF-M2", "MANAGER", ADM.id);
+  const tryAssign = async (who, label) => {
+    const r = await call("POST", "/tasks/review/assign", who.tok, { userId: M.id, title: "Do this", weight: "LOW" });
+    ok(label + " cannot assign to a manager (403)", r.s === 403, r);
+  };
+  await tryAssign(ADM, "Admin");
+  await tryAssign(H, "HR");
+  await tryAssign(M2, "another manager");
+  await tryAssign(M, "the manager himself (he uses Add task instead)");
+  await tryAssign(E, "an employee");
+  ok("nothing was created for the manager by those attempts", (await q('select 1 from daily_tasks where "userId"=$1 and title=$2', [M.id, "Do this"])).length === 0);
+  const toEmp = await call("POST", "/tasks/review/assign", M.tok, { userId: E.id, title: "For the employee", weight: "LOW" });
+  ok("a manager can still assign to his own reporting employee", toEmp.s === 200, toEmp);
+
   const rm = await call("POST", "/tasks", M.tok, { title: "Remove me" });
   ok("a not-started self-managed task can be removed", (await call("DELETE", `/tasks/${idOf(rm, "Remove me")}`, M.tok)).s === 200);
   ok("a started one cannot be removed", (await call("DELETE", `/tasks/${t1}`, M.tok)).s === 400);
