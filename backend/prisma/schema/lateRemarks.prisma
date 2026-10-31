@@ -1,0 +1,25 @@
+// ===========================================================================
+// LATE REMARKS - the short reason a person gives when they clock in after the late cut-off.
+//
+// One row per work session (the day). The cut-off itself is NOT stored here: it is the existing rule
+// (shift start + the team's late-login grace), already recorded on work_sessions.wasLateLogin.
+//
+// NEW TABLE ONLY: no column was added to work_sessions. A database without this table keeps working exactly as
+// before (nobody is asked for a remark and nothing breaks). No Prisma relations to existing models on purpose;
+// the foreign keys live in the migration SQL.
+// ===========================================================================
+
+model LateRemark {
+  id         String @id @default(uuid()) @db.Uuid
+  platformId String @db.Uuid
+  userId     String @db.Uuid
+  sessionId  String @unique @db.Uuid // = work_sessions.id
+
+  remark        String
+  lateByMinutes Int
+  createdAt     DateTime @default(now())
+
+  @@index([platformId, createdAt])
+  @@index([userId, createdAt])
+  @@map("late_remarks")
+}

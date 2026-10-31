@@ -12,6 +12,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { API_BASE } from "@/lib/api";
 import { todayIso } from "@/lib/time";
 import EmployeeActions from "../_employees/EmployeeActions";
@@ -116,6 +117,12 @@ type LeaveRow = {
   employeeCode: string | null;
   markedBy: string;
 };
+
+// Suggested job titles for the Role / Designation box. Only suggestions: nobody is given one automatically.
+const DESIGNATION_SUGGESTIONS = [
+  "Developer", "Senior Developer", "AI/ML Engineer", "HR Manager", "HR Executive", "Project Manager", "Team Lead",
+  "UI/UX Designer", "Marketing Executive", "Operations Executive", "Admin",
+];
 
 const TABS = ["People", "Teams", "Shifts", "Thresholds", "Leave"] as const;
 type Tab = (typeof TABS)[number];
@@ -319,13 +326,11 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Code</th>
-              <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">Role / Designation</th>
               <th className="px-4 py-3">Team</th>
-              <th className="px-4 py-3">Shift</th>
               <th className="px-4 py-3">Reports to</th>
-              <th className="px-4 py-3">Tracker</th>
               <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3" />
+              <th className="px-4 py-3 text-right">Edit</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-indigo-50">
@@ -336,21 +341,13 @@ function PeopleTab({ options, onError, onDone }: TabProps) {
                   <div className="text-xs text-slate-500">{p.email}</div>
                 </td>
                 <td className="px-4 py-3 text-slate-600">{p.employeeCode ?? "—"}</td>
-                <td className="px-4 py-3 text-slate-600">{p.role}</td>
+                <td className="px-4 py-3 text-slate-600" title={`System role (permissions): ${p.role.toLowerCase()}`}>
+                  {p.designation?.trim() ? p.designation : <span className="text-slate-400">Not Assigned</span>}
+                </td>
                 <td className="px-4 py-3 text-slate-600">
                   {p.teams.map((t) => t.name).join(", ") || "—"}
                 </td>
-                <td className="px-4 py-3 text-slate-600">{p.shift?.name ?? "—"}</td>
                 <td className="px-4 py-3 text-slate-600">{p.reportsTo?.name ?? "—"}</td>
-                <td className="px-4 py-3">
-                  {p.trackerAccessEnabled ? (
-                    <span className="text-xs text-emerald-700">open</span>
-                  ) : (
-                    <span className="text-xs text-slate-400">
-                      gated · {p.onboardingStatus.toLowerCase().replace(/_/g, " ")}
-                    </span>
-                  )}
-                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ${
@@ -433,6 +430,13 @@ function PersonDrawer({
   });
   const [busy, setBusy] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  // Team membership of an existing person: starts as it is today and changes ONLY when the admin edits it and
+  // presses Save. Nothing is assigned automatically.
+  const originalTeamIds = person?.teams.map((t) => t.id) ?? [];
+  const [teamIds, setTeamIds] = useState<string[]>(originalTeamIds);
+  const teamName = (id: string) => options?.teams.find((t) => t.id === id)?.name ?? person?.teams.find((t) => t.id === id)?.name ?? "Unknown team";
+  const teamAdds = teamIds.filter((id) => !originalTeamIds.includes(id));
+  const teamRemoves = originalTeamIds.filter((id) => !teamIds.includes(id));
 
   const set = (k: keyof typeof form, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v as never }));
@@ -490,6 +494,13 @@ function PersonDrawer({
           dateOfJoining: form.dateOfJoining || null,
           trackerAccessEnabled: form.trackerAccessEnabled,
         });
+        // Team changes the admin made in this form (adds first, then removals; removal is a soft "left the team").
+        try {
+          for (const id of teamAdds) await call(`/admin/teams/${id}/members`, "POST", { userId: person!.id });
+          for (const id of teamRemoves) await call(`/admin/teams/${id}/members/${person!.id}`, "DELETE");
+        } catch (e) {
+          throw new Error(`Details saved, but the team change failed: ${e instanceof Error ? e.message : "unknown error"}`);
+        }
         onSaved(`${form.firstName} ${form.lastName} updated.`);
       }
     } catch (e) {
@@ -543,7 +554,7 @@ function PersonDrawer({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Role">
+        <Field label="System role" hint="Decides what they can do in the app">
           <Select value={form.role} onChange={(v) => set("role", v)}>
             {options?.roles.map((r) => (
               <option key={r} value={r}>
@@ -552,8 +563,14 @@ function PersonDrawer({
             ))}
           </Select>
         </Field>
-        <Field label="Designation">
-          <Input value={form.designation} onChange={(v) => set("designation", v)} />
+        <Field label="Role / Designation" hint="Their job title. Shown in the Employees list.">
+          <Input value={form.designation} onChange={(v) => set("designation", v)} list="designation-options" placeholder="Not Assigned" />
+          {/* Suggestions only: nothing is filled in for anyone, and any other title can be typed. */}
+          <datalist id="designation-options">
+            {DESIGNATION_SUGGESTIONS.map((d) => (
+              <option key={d} value={d} />
+            ))}
+          </datalist>
         </Field>
       </div>
 
@@ -627,6 +644,34 @@ function PersonDrawer({
 
       {!isNew && (
         <>
+          <Field label="Team / department" hint="Chosen by you. Nothing is assigned automatically; changes apply when you press Save changes.">
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {teamIds.length === 0 && <span className="text-sm text-slate-400">No team</span>}
+              {teamIds.map((id) => (
+                <span key={id} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 py-1 pl-2.5 pr-1 text-xs text-indigo-700">
+                  {teamName(id)}
+                  <button type="button" onClick={() => setTeamIds((cur) => cur.filter((x) => x !== id))} aria-label={`Remove from ${teamName(id)}`} className="rounded-full p-0.5 hover:bg-indigo-100">
+                    <svg viewBox="0 0 20 20" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="m5 5 10 10M15 5 5 15" /></svg>
+                  </button>
+                </span>
+              ))}
+            </div>
+            <Select value="" onChange={(v) => v && setTeamIds((cur) => (cur.includes(v) ? cur : [...cur, v]))}>
+              <option value="">Add a team…</option>
+              {options?.teams.filter((t) => !teamIds.includes(t.id)).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+            {(teamAdds.length > 0 || teamRemoves.length > 0) && (
+              <p className="mt-2 text-xs text-amber-700">
+                Not saved yet:{teamAdds.length > 0 ? ` add to ${teamAdds.map(teamName).join(", ")}.` : ""}
+                {teamRemoves.length > 0 ? ` Remove from ${teamRemoves.map(teamName).join(", ")}.` : ""}
+              </p>
+            )}
+          </Field>
+
           <Field label="Status">
             <Select value={form.status} onChange={(v) => set("status", v)}>
               {options?.statuses.map((s) => (
@@ -1368,7 +1413,9 @@ function Drawer({
   onClose: () => void;
   children: React.ReactNode;
 }) {
-  return (
+  // Rendered into <body> so no parent can clip or offset the full-screen overlay.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       <div
         className="absolute inset-0 bg-slate-900/20 backdrop-blur-[1px]"
@@ -1387,7 +1434,8 @@ function Drawer({
         </div>
         <div className="space-y-4 p-6">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1418,6 +1466,7 @@ function Input({
   placeholder,
   disabled,
   step,
+  list,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1425,10 +1474,12 @@ function Input({
   placeholder?: string;
   disabled?: boolean;
   step?: string;
+  list?: string; // id of a <datalist> of suggestions (free typing is still allowed)
 }) {
   return (
     <input
       type={type}
+      list={list}
       step={step}
       value={value}
       placeholder={placeholder}

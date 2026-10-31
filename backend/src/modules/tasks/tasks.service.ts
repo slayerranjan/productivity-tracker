@@ -307,6 +307,21 @@ export async function listTasks(userId: string) {
   };
 }
 
+// One earlier (or later) day of the person's OWN tasks, for My History. Read-only; nothing is recomputed.
+export async function listMyDay(userId: string, day: unknown) {
+  const date = parseIsoDay(day);
+  const rows = await prisma.dailyTask.findMany({
+    where: { userId, date },
+    include: { team: { select: { name: true } } },
+    orderBy: { title: "asc" },
+  });
+  return {
+    date: date.toISOString().slice(0, 10),
+    score: scoreOf(rows),
+    tasks: rows.map((t) => shape(t, t.team?.name ?? null)),
+  };
+}
+
 // Resolves the project for a new task and refuses one the person isn't on.
 async function resolveProject(
   userId: string,

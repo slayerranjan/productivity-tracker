@@ -24,11 +24,14 @@ export type Person = {
   employeeCode: string | null;
   role: string;
   designation: string | null;
+  teamName?: string | null;
+  daysNotTracked?: number;
   daysExpected: number;
   daysPresent: number;
   daysOnLeave: number;
   daysAbsent: number;
   productiveSeconds: number;
+  breakSeconds?: number;
   targetSeconds: number;
   attainment: number;
   tasksTotal: number;
@@ -104,6 +107,8 @@ export type Ticket = {
   priority: string;
   isOverdue: boolean;
   raisedBy: string;
+  // false once staff have answered; missing on an older server (treated as still waiting)
+  awaitingReply?: boolean;
 };
 
 // /onboarding/candidates returns one row per joiner. pendingReview is how many

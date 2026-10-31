@@ -29,6 +29,7 @@ export type TsSession = {
   meetingSeconds: number;
   wasLateLogin: boolean;
   lateByMinutes: number;
+  lateRemark?: string | null;
   shiftStartTime: string | null;
   project?: { id: string; name: string } | null;
   correction?: { at: string; by: string } | null;

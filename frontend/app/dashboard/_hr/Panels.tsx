@@ -9,7 +9,7 @@
 // ===========================================================================
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { fmtDay, hm, initials, parseDay, pct, timeOf, weekOf, weekdayShort } from "./format";
 import type { Holiday, Person } from "./types";
 
@@ -273,21 +273,36 @@ export function EventsList({ holidays, today }: { holidays: Holiday[]; today: st
 // --- performance table -------------------------------------------------------------
 
 export function PerformanceTable({ people }: { people: Person[] }) {
+  // Grouped by team (people without one go last). Order inside a team is kept as the report sent it.
+  const groups = new Map<string, Person[]>();
+  for (const p of people) {
+    const key = p.teamName?.trim() || "No team";
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  const ordered = Array.from(groups.entries()).sort(([a], [b]) => (a === "No team" ? 1 : b === "No team" ? -1 : a.localeCompare(b)));
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-left text-[13px]">
+      <table className="w-full min-w-[720px] text-left text-[13px]">
         <thead>
           <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
             <th className="px-3 pb-3">Employee</th>
             <th className="px-3 pb-3 text-right">Present</th>
-            <th className="px-3 pb-3 text-right">Absent</th>
+            <th className="px-3 pb-3 text-right" title="Days the company was using the tracker and this person did not clock in">Absent</th>
             <th className="px-3 pb-3 text-right">Productive</th>
+            <th className="px-3 pb-3 text-right">Break</th>
             <th className="px-3 pb-3">Productivity</th>
             <th className="px-3 pb-3 text-right">Tasks</th>
           </tr>
         </thead>
         <tbody>
-          {people.map((p, i) => {
+          {ordered.map(([team, members]) => (
+            <Fragment key={team}>
+              <tr>
+                <td colSpan={7} className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
+                  {team} <span className="font-normal normal-case text-slate-400">· {members.length} {members.length === 1 ? "person" : "people"}</span>
+                </td>
+              </tr>
+              {members.map((p, i) => {
             const bar = Math.min(100, Math.round((p.attainment || 0) * 100));
             return (
               <tr key={p.userId} className={i % 2 === 0 ? "bg-[#F8F9FE]" : ""}>
@@ -301,6 +316,7 @@ export function PerformanceTable({ people }: { people: Person[] }) {
                       <span className="block truncate text-[11px] text-slate-400">
                         {p.designation ?? p.role.toLowerCase()}
                         {p.employeeCode ? ` · ${p.employeeCode}` : ""}
+                        {p.role === "MANAGER" && <span className="ml-1.5 rounded-full bg-[#EEF0FD] px-1.5 py-0.5 text-[10px] font-medium text-indigo-700" title="Attendance is shown, but managers are left out of the team productivity figures">manager</span>}
                       </span>
                     </span>
                   </div>
@@ -309,8 +325,12 @@ export function PerformanceTable({ people }: { people: Person[] }) {
                   {p.daysPresent}
                   <span className="text-slate-300"> / {p.daysExpected}</span>
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{p.daysAbsent}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                  {p.daysAbsent}
+                  {(p.daysNotTracked ?? 0) > 0 && <span className="block text-[10px] text-slate-400" title="Nobody in the company clocked in on these days, so they are not counted as absent">{p.daysNotTracked} not tracked</span>}
+                </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{hm(p.productiveSeconds)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{p.breakSeconds === undefined ? "—" : hm(p.breakSeconds)}</td>
                 <td className="px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <span className="h-1.5 w-24 overflow-hidden rounded-full bg-indigo-100">
@@ -325,7 +345,9 @@ export function PerformanceTable({ people }: { people: Person[] }) {
                 </td>
               </tr>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
     </div>

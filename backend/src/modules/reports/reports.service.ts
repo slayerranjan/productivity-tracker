@@ -152,6 +152,7 @@ export async function getTeamReport(
           email: true,
           employeeCode: true,
           role: true,
+          platformId: true,
           designation: true,
           shiftId: true,
           dateOfJoining: true,
@@ -183,7 +184,7 @@ export async function getTeamReport(
 
       prisma.dailyTask.findMany({
         where: { userId: { in: userIds }, date: dateFilter },
-        select: { userId: true, date: true, weight: true, status: true },
+        select: { userId: true, date: true, weight: true, status: true, approvalStatus: true, outcome: true },
       }),
 
       prisma.alert.findMany({
@@ -231,6 +232,31 @@ export async function getTeamReport(
     leaveMap.set(`${l.userId}|${toKey(l.date)}`, l.isHalfDay);
   }
 
+  // Days each company was actually using the tracker. SAME rule as payroll (attendance.service): a day on which NOBODY in
+  // the whole company clocked in is "Not tracked", not a day everyone was absent. It is paid and owes no target, so it
+  // is neither "Absent" nor an expected day here either. Company-wide, not just the people this viewer can see.
+  const platformIds = Array.from(new Set(users.map((u) => u.platformId)));
+  const [trackedRows, memberships] = await Promise.all([
+    prisma.workSession.groupBy({
+      by: ["platformId", "date"],
+      where: { platformId: { in: platformIds }, date: dateFilter },
+      _count: { id: true },
+    }),
+    prisma.teamMember.findMany({
+      where: { userId: { in: userIds }, isActive: true },
+      select: { userId: true, team: { select: { name: true } } },
+    }),
+  ]);
+  const trackedDays = new Set(trackedRows.map((r) => `${r.platformId}|${toKey(r.date)}`));
+  // A person in several teams is listed under the first one alphabetically, so grouping is stable.
+  const teamOf = new Map<string, string>();
+  for (const m of memberships) {
+    const cur = teamOf.get(m.userId);
+    if (!cur || m.team.name.localeCompare(cur) < 0) teamOf.set(m.userId, m.team.name);
+  }
+  // Managers' attendance is shown, but they are left out of the productivity figures (totals, buckets).
+  const managerIds = new Set(users.filter((u) => String(u.role) === "MANAGER").map((u) => u.id));
+
   // --- accumulators ---------------------------------------------------------
 
   const byPerson = new Map<string, PersonRow>();
@@ -242,6 +268,8 @@ export async function getTeamReport(
       employeeCode: u.employeeCode,
       role: String(u.role),
       designation: u.designation ?? null,
+      teamName: teamOf.get(u.id) ?? null,
+      daysNotTracked: 0,
       daysExpected: 0,
       daysPresent: 0,
       daysOnLeave: 0,
@@ -257,6 +285,9 @@ export async function getTeamReport(
       taskScore: 0,
       tasksTotal: 0,
       tasksDone: 0,
+      tasksCompleted: 0,
+      tasksPending: 0,
+      taskCompletion: 0,
       alertCount: 0,
     });
   }
@@ -268,6 +299,7 @@ export async function getTeamReport(
       row = {
         key,
         peopleSeen: new Set<string>(),
+        daysNotTracked: 0,
         daysExpected: 0,
         daysPresent: 0,
         daysOnLeave: 0,
@@ -276,6 +308,8 @@ export async function getTeamReport(
         breakSeconds: 0,
         meetingSeconds: 0,
         targetSeconds: 0,
+        tasksCompleted: 0,
+        tasksPending: 0,
         alertCount: 0,
       };
       byBucket.set(key, row);
@@ -297,6 +331,7 @@ export async function getTeamReport(
   for (const u of users) {
     const person = byPerson.get(u.id)!;
     const days = (u.shiftId ? shiftDays.get(u.shiftId) : undefined) ?? defaultDays;
+    const mgr = managerIds.has(u.id);
 
     const joined = u.dateOfJoining ? u.dateOfJoining.getTime() : -Infinity;
     const left = u.exitDate ? u.exitDate.getTime() : Infinity;
@@ -329,7 +364,7 @@ export async function getTeamReport(
         person.targetSeconds += dailyTargetSeconds / 2;
         b.daysExpected += 0.5;
         b.daysOnLeave += 0.5;
-        b.targetSeconds += dailyTargetSeconds / 2;
+        if (!mgr) b.targetSeconds += dailyTargetSeconds / 2;
         continue;
       }
       if (leave === false) {
@@ -339,10 +374,17 @@ export async function getTeamReport(
         continue;
       }
 
+      // Nobody in the company clocked in that day, and this person did not either: the tracker was not in use.
+      if (!attendedDays.has(`${u.id}|${key}`) && !trackedDays.has(`${u.platformId}|${key}`)) {
+        person.daysNotTracked += 1;
+        b.daysNotTracked += 1;
+        continue;
+      }
+
       person.daysExpected += 1;
       person.targetSeconds += dailyTargetSeconds;
       b.daysExpected += 1;
-      b.targetSeconds += dailyTargetSeconds;
+      if (!mgr) b.targetSeconds += dailyTargetSeconds;
 
       if (!attendedDays.has(`${u.id}|${key}`)) person.daysAbsent += 1;
     }
@@ -369,9 +411,11 @@ export async function getTeamReport(
     }
 
     b.daysPresent += 1;
-    b.productiveSeconds += s.productiveSeconds;
-    b.breakSeconds += s.breakSeconds;
-    b.meetingSeconds += s.meetingSeconds;
+    if (!managerIds.has(s.userId)) {
+      b.productiveSeconds += s.productiveSeconds;
+      b.breakSeconds += s.breakSeconds;
+      b.meetingSeconds += s.meetingSeconds;
+    }
     if (s.wasLateLogin) b.lateDays += 1;
     b.peopleSeen.add(s.userId);
   }
@@ -384,6 +428,21 @@ export async function getTeamReport(
     const weight = WEIGHT_VALUES[String(t.weight)] ?? 1;
     person.tasksTotal += weight;
     if (String(t.status) === "COMPLETED") person.tasksDone += weight;
+
+    // Counts (not weights). Only APPROVED work counts, and "completed" follows the same rule as the daily target
+    // (finished and accepted in full). Approved work that is not fully done yet - still open, partly done or sent
+    // back - is "pending". Cancelled tasks and proposals nobody approved are in neither.
+    if (String(t.approvalStatus) === "APPROVED" && String(t.status) !== "CANCELLED") {
+      const fullyDone = String(t.status) === "COMPLETED" && (t.outcome === null || String(t.outcome) === "COMPLETED");
+      const b = bucket(bucketKey(t.date, groupBy));
+      if (fullyDone) {
+        person.tasksCompleted += 1;
+        if (!managerIds.has(t.userId)) b.tasksCompleted += 1;
+      } else {
+        person.tasksPending += 1;
+        if (!managerIds.has(t.userId)) b.tasksPending += 1;
+      }
+    }
   }
 
   // --- alerts ---------------------------------------------------------------
@@ -403,6 +462,8 @@ export async function getTeamReport(
     person.attainment =
       person.targetSeconds > 0 ? person.productiveSeconds / person.targetSeconds : 0;
     person.taskScore = person.tasksTotal > 0 ? person.tasksDone / person.tasksTotal : 0;
+    const counted = person.tasksCompleted + person.tasksPending;
+    person.taskCompletion = counted > 0 ? person.tasksCompleted / counted : 0;
   }
 
   const buckets = Array.from(byBucket.values())
@@ -412,12 +473,16 @@ export async function getTeamReport(
       daysExpected: b.daysExpected,
       daysPresent: b.daysPresent,
       daysOnLeave: b.daysOnLeave,
+      daysNotTracked: b.daysNotTracked,
       lateDays: b.lateDays,
       productiveSeconds: b.productiveSeconds,
       breakSeconds: b.breakSeconds,
       meetingSeconds: b.meetingSeconds,
       targetSeconds: b.targetSeconds,
       attainment: b.targetSeconds > 0 ? b.productiveSeconds / b.targetSeconds : 0,
+      tasksCompleted: b.tasksCompleted,
+      tasksPending: b.tasksPending,
+      taskCompletion: b.tasksCompleted + b.tasksPending > 0 ? b.tasksCompleted / (b.tasksCompleted + b.tasksPending) : 0,
       alertCount: b.alertCount,
     }))
     .sort((a, z) => a.key.localeCompare(z.key));
@@ -431,18 +496,29 @@ export async function getTeamReport(
     totals.daysOnLeave += p.daysOnLeave;
     totals.daysAbsent += p.daysAbsent;
     totals.lateDays += p.lateDays;
-    totals.productiveSeconds += p.productiveSeconds;
-    totals.breakSeconds += p.breakSeconds;
-    totals.meetingSeconds += p.meetingSeconds;
-    totals.targetSeconds += p.targetSeconds;
+    totals.daysNotTracked += p.daysNotTracked;
+    if (p.role === "MANAGER") {
+      totals.managersExcluded += 1; // their attendance counts above; their productivity is left out below
+    } else {
+      totals.productiveSeconds += p.productiveSeconds;
+      totals.breakSeconds += p.breakSeconds;
+      totals.meetingSeconds += p.meetingSeconds;
+      totals.targetSeconds += p.targetSeconds;
+    }
     totals.alertCount += p.alertCount;
-    totals.tasksTotal += p.tasksTotal;
-    totals.tasksDone += p.tasksDone;
+    if (p.role !== "MANAGER") {
+      totals.tasksTotal += p.tasksTotal;
+      totals.tasksDone += p.tasksDone;
+      totals.tasksCompleted += p.tasksCompleted;
+      totals.tasksPending += p.tasksPending;
+    }
   }
   totals.headcount = people.filter((p) => p.daysExpected > 0 || p.daysPresent > 0).length;
   totals.attainment =
     totals.targetSeconds > 0 ? totals.productiveSeconds / totals.targetSeconds : 0;
   totals.taskScore = totals.tasksTotal > 0 ? totals.tasksDone / totals.tasksTotal : 0;
+  totals.taskCompletion =
+    totals.tasksCompleted + totals.tasksPending > 0 ? totals.tasksCompleted / (totals.tasksCompleted + totals.tasksPending) : 0;
 
   return {
     range: { from: fromStr, to: toStr },
@@ -473,6 +549,8 @@ type PersonRow = {
   employeeCode: string | null;
   role: string;
   designation: string | null;
+  teamName: string | null;
+  daysNotTracked: number;
   daysExpected: number;
   daysPresent: number;
   daysOnLeave: number;
@@ -488,12 +566,16 @@ type PersonRow = {
   taskScore: number;
   tasksTotal: number;
   tasksDone: number;
+  tasksCompleted: number;
+  tasksPending: number;
+  taskCompletion: number;
   alertCount: number;
 };
 
 type BucketRow = {
   key: string;
   peopleSeen: Set<string>;
+  daysNotTracked: number;
   daysExpected: number;
   daysPresent: number;
   daysOnLeave: number;
@@ -502,12 +584,16 @@ type BucketRow = {
   breakSeconds: number;
   meetingSeconds: number;
   targetSeconds: number;
+  tasksCompleted: number;
+  tasksPending: number;
   alertCount: number;
 };
 
 function blankTotals() {
   return {
     headcount: 0,
+    managersExcluded: 0,
+    daysNotTracked: 0,
     daysExpected: 0,
     daysPresent: 0,
     daysOnLeave: 0,
@@ -521,6 +607,9 @@ function blankTotals() {
     taskScore: 0,
     tasksTotal: 0,
     tasksDone: 0,
+    tasksCompleted: 0,
+    tasksPending: 0,
+    taskCompletion: 0,
     alertCount: 0,
   };
 }

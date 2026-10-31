@@ -12,6 +12,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { API_BASE } from "@/lib/api";
 import { formatDateTime, platformLocalToIso, todayIso } from "@/lib/time";
 import { useMe } from "../layout";
@@ -137,7 +138,12 @@ export default function TicketsPage() {
   const me = useMe();
   const isStaff = ["MANAGER", "HR", "ADMIN"].includes(me?.role ?? "");
 
-  const [scope, setScope] = useState<"mine" | "assigned" | "all">("mine");
+  // Staff land on what is waiting for THEM; everyone else on what they raised. Until the person picks a tab, this
+  // follows their role (so it is right even before their profile has loaded).
+  type Scope = "mine" | "assigned" | "all";
+  const [picked, setPicked] = useState<Scope | null>(null);
+  const scope: Scope = picked ?? (isStaff ? "assigned" : "mine");
+  const setScope = (s: Scope) => setPicked(s);
   const [rows, setRows] = useState<TicketRow[]>([]);
   const [counts, setCounts] = useState({ mine: 0, assigned: 0, overdue: 0 });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -174,8 +180,8 @@ export default function TicketsPage() {
   }, [load]);
 
   const TABS: { key: typeof scope; label: string; badge?: number }[] = [
-    { key: "mine", label: "Raised by me", badge: counts.mine },
     { key: "assigned", label: "Assigned to me", badge: counts.assigned },
+    { key: "mine", label: "Raised by me", badge: counts.mine },
     ...(isStaff ? [{ key: "all" as const, label: "All" }] : []),
   ];
 
@@ -235,9 +241,9 @@ export default function TicketsPage() {
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[22rem_1fr]">
+      <div className="grid items-start gap-5 lg:grid-cols-[24rem_1fr]">
         {/* --- list ------------------------------------------------------- */}
-        <div className="space-y-2">
+        <div className="space-y-2 lg:max-h-[calc(100vh-15rem)] lg:overflow-y-auto lg:pr-1">
           {rows.map((t) => (
             <button
               key={t.id}
@@ -284,8 +290,8 @@ export default function TicketsPage() {
           ))}
 
           {!loading && rows.length === 0 && (
-            <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-4 py-10 text-center text-sm text-slate-400">
-              Nothing here.
+            <div className="rounded-2xl bg-white shadow-[var(--shadow-card)] px-4 py-10 text-center text-sm text-slate-500">
+              {scope === "assigned" ? "No tickets are assigned to you." : scope === "mine" ? "You haven't raised any tickets." : "No tickets yet."}
             </div>
           )}
           {loading && (
@@ -304,7 +310,7 @@ export default function TicketsPage() {
               onError={setError}
             />
           ) : (
-            <div className="rounded-xl border border-dashed border-indigo-200 px-6 py-20 text-center text-sm text-slate-400">
+            <div className="flex min-h-[20rem] items-center justify-center rounded-2xl border border-dashed border-indigo-200 bg-white/50 px-6 py-20 text-center text-sm text-slate-500 lg:sticky lg:top-6">
               Pick a ticket to open the conversation.
             </div>
           )}
@@ -623,7 +629,9 @@ function RaiseDrawer({
     }
   }
 
-  return (
+  // Rendered into <body> so no parent can clip or offset the full-screen overlay.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-slate-900/20" onClick={onClose} />
       <div className="relative h-full w-full max-w-md overflow-y-auto border-l border-indigo-100 bg-white shadow-xl">
@@ -756,6 +764,7 @@ function RaiseDrawer({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

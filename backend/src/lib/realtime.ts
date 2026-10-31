@@ -191,6 +191,22 @@ export function emitPolicyChange(change: { userIds: string[]; policyId: string; 
 // Goes only to each recipient's private inbox room. Never throws; a no-op when real-time is off.
 export type NotificationSignal = { eventId: string; at: string };
 
+// In-person meeting participation changed (someone joined, ended, or a manager corrected a record). Goes ONLY to the
+// private inbox rooms of the people named (the organizer and the person concerned), never to managers or HR who can
+// merely see that person, so HR learns nothing about who is in a stand-up. The signal carries no names or times;
+// the screen refetches over REST, which enforces who may see what.
+export type MeetingSignal = { eventId: string; at: string; meetingId: string };
+
+export function emitMeetingChange(userIds: string[], meetingId: string): void {
+  try {
+    if (!io || userIds.length === 0) return;
+    const payload: MeetingSignal = { eventId: randomUUID(), at: new Date().toISOString(), meetingId };
+    io.to([...new Set(userIds)].map(inboxRoom)).emit("meetings:changed", payload);
+  } catch (e) {
+    console.error("[realtime] meeting emit failed:", e instanceof Error ? e.message : e);
+  }
+}
+
 export function emitNotificationChange(userIds: string[]): void {
   try {
     if (!io || userIds.length === 0) return;
