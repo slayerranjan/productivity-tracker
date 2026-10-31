@@ -22,6 +22,8 @@ import { parseIsoDay, platformToday } from "../../lib/dates.js";
 import { getTeamReport } from "../reports/reports.service.js";
 import { getContext } from "./tracker.service.js";
 import { remarksBySession } from "./lateRemarks.js";
+import { computeBreakdown } from "./productiveBreakdown.js";
+import { huddlesForSession } from "../meetings/participation.service.js";
 
 const MAX_DAYS = 93;
 const DAY_MS = 86_400_000;
@@ -68,6 +70,27 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
 
   const sessionByDay = new Map(sessions.map((s) => [iso(s.date), s]));
   const remarkOf = await remarksBySession(sessions.map((s) => s.id));
+  // The split of each day's productive time (regular / Team Huddle / other eligible). One shared function, so the manager
+  // screens show exactly the same numbers. It never changes the productive total.
+  const nowForSplit = new Date();
+  const splitOf = new Map<string, { breakdown: ReturnType<typeof computeBreakdown>; huddles: Awaited<ReturnType<typeof huddlesForSession>> }>();
+  for (const s of sessions) {
+    const huddles = await huddlesForSession(userId, s.loginAt, s.logoutAt, nowForSplit);
+    const breakdown = computeBreakdown({
+      loginAt: s.loginAt, logoutAt: s.logoutAt,
+      breaks: s.breaks.map((b) => ({ startedAt: b.startedAt, endedAt: b.endedAt })),
+      liveMeetings: s.meetings.map((m) => ({ approvalStatus: String(m.approvalStatus), startedAt: m.startedAt, endedAt: m.endedAt })),
+      huddles: huddles.map((h) => ({ id: h.id, joinedAt: h.joinedAt, leftAt: h.leftAt, expectedEnd: h.expectedEnd })),
+      now: nowForSplit,
+    });
+    if (String(s.status) === "COMPLETED") {
+      breakdown.productiveSeconds = s.productiveSeconds;
+      breakdown.huddleSeconds = Math.min(breakdown.huddleSeconds, s.productiveSeconds);
+      breakdown.otherEligibleSeconds = Math.min(breakdown.otherEligibleSeconds, Math.max(0, s.productiveSeconds - breakdown.huddleSeconds));
+      breakdown.regularSeconds = Math.max(0, s.productiveSeconds - breakdown.huddleSeconds - breakdown.otherEligibleSeconds);
+    }
+    splitOf.set(s.id, { breakdown, huddles });
+  }
   const holidayByDay = new Map(holidays.map((h) => [iso(h.date), h]));
   // One entry per day, as the Reports page computes expected days and leave.
   type Bucket = { key: string; daysExpected: number; daysOnLeave: number };
@@ -106,6 +129,18 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
             lateRemark: remarkOf.get(s.id) ?? null,
             shiftStartTime: s.shiftStartTime,
             correction: correctedBy.get(s.id) ?? null,
+            breakdown: (() => {
+              const x = splitOf.get(s.id);
+              if (!x) return null;
+              const b = x.breakdown;
+              return {
+                regularSeconds: b.regularSeconds, huddleSeconds: b.huddleSeconds, otherEligibleSeconds: b.otherEligibleSeconds, totalSeconds: b.productiveSeconds,
+                huddles: x.huddles.map((h, i) => ({
+                  id: h.id, meetingId: h.meetingId, title: h.title, scheduledStart: h.startsAt, scheduledEnd: h.expectedEnd, joinedAt: h.joinedAt, leftAt: h.leftAt,
+                  countedSeconds: b.huddles[i].countedSeconds, rawSeconds: b.huddles[i].rawSeconds, openPastEnd: b.huddles[i].openPastEnd, addedByManager: h.source === "MANAGER_ADDED",
+                })),
+              };
+            })(),
             project: s.team ? { id: s.team.id, name: s.team.name } : null,
             breaks: s.breaks.map((b) => ({
               id: b.id,
@@ -131,6 +166,8 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
   const productiveSeconds = sessions.reduce((n, s) => n + s.productiveSeconds, 0);
   const breakSeconds = sessions.reduce((n, s) => n + s.breakSeconds, 0);
   const meetingSeconds = sessions.reduce((n, s) => n + s.meetingSeconds, 0);
+  const huddleSecondsTotal = [...splitOf.values()].reduce((n, x) => n + x.breakdown.huddleSeconds, 0);
+  const otherEligibleTotal = [...splitOf.values()].reduce((n, x) => n + x.breakdown.otherEligibleSeconds, 0);
 
   const shift = ctx.shift;
   return {
@@ -157,6 +194,9 @@ export async function getTimesheet(userId: string, fromStr?: string, toStr?: str
       productiveSeconds,
       breakSeconds,
       meetingSeconds,
+      huddleSeconds: huddleSecondsTotal,
+      otherEligibleSeconds: otherEligibleTotal,
+      regularSeconds: Math.max(0, productiveSeconds - huddleSecondsTotal - otherEligibleTotal),
       // Productive + break: the whole time on site. Breaks are never added to
       // productive time, and meetings sit inside productive time.
       elapsedSeconds: productiveSeconds + breakSeconds,

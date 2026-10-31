@@ -349,3 +349,124 @@ button:not(:disabled):active {
     background: #fff;
   }
 }
+/* ===========================================================================
+   DARK THEME (a per-person choice; light is the default and is untouched)
+
+   How it works: the app is built from a small set of colours, so dark is done by redefining those colours in one
+   place instead of editing every screen. `html.dark` is set by lib/theme.ts (before the page paints, so there is no
+   flash). Nothing here applies unless a person chose dark, so light looks exactly as it always did.
+
+   Rules kept on purpose:
+   - The brand button fill (bg-indigo-600 with white text) and the red/green/amber button fills are NOT remapped, so
+     buttons keep their colour and their white text stays readable.
+   - Palette steps that are only ever text, borders or soft backgrounds ARE remapped (light steps become dark
+     surfaces, dark steps become light text).
+   - Colours used as text on a coloured step (text-indigo-700, text-red-600 ...) are lightened by explicit rules,
+     because the same step is also a button fill.
+   To change the dark palette, change the values in this block and nowhere else.
+=========================================================================== */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html.dark {
+  color-scheme: dark; /* native date/time pickers, scrollbars and form controls follow */
+
+  --background: #0e1120;
+  --foreground: #e6e9f5;
+  --surface: #171b2d; /* what bg-white is on a light screen: cards, tables, modals */
+  --surface-soft: #1d2237; /* soft panels, table headers, hover rows */
+  --surface-chip: #262c4d; /* chips and tinted blocks */
+  --surface-canvas: #1b2040;
+
+  --nav-bg: #151a2c;
+  --nav-hover: #1f2540;
+  --nav-text: #9aa3c2;
+  --nav-active-bg: #262d54;
+  --nav-active: #9aa7ff;
+
+  --ring: rgba(140, 155, 255, 0.45);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 10px 20px -5px rgba(0, 0, 0, 0.55);
+
+  --chart-grid: #2a3050;
+  --chart-cursor: #1d2237;
+  --chart-tick: #8b94b5;
+
+  /* neutral scale: light steps = surfaces and borders, dark steps = text */
+  --color-slate-50: #1d2237;
+  --color-slate-100: #22283f;
+  --color-slate-200: #2a3050;
+  --color-slate-300: #3a4268;
+  --color-slate-400: #7f89ab;
+  --color-slate-500: #9aa3c2;
+  --color-slate-600: #b3bad3;
+  --color-slate-700: #c8cee2;
+  --color-slate-800: #dde1ef;
+  --color-slate-900: #eceff8;
+
+  /* brand scale: only the soft steps (tints, borders) change; 500-900 stay as button fills */
+  --color-indigo-50: #1b2040;
+  --color-indigo-100: #262c52;
+  --color-indigo-200: #323a6b;
+  --color-indigo-300: #4753a0;
+  --color-indigo-400: #6c78d8;
+
+  /* status tints (backgrounds and borders) */
+  --color-red-50: #2c1519;   --color-red-100: #3a1a20;   --color-red-200: #5a2630;   --color-red-300: #7a3340;
+  --color-rose-50: #2d1520;  --color-rose-100: #3b1a28;  --color-rose-200: #5b2740;  --color-rose-300: #7b3552;
+  --color-amber-50: #2c2210; --color-amber-100: #3a2d12; --color-amber-200: #5a4519; --color-amber-300: #7a5d22;
+  --color-emerald-50: #112a22; --color-emerald-100: #173a2e; --color-emerald-200: #1f5642; --color-emerald-300: #2a7459;
+  --color-sky-50: #10263a;   --color-sky-100: #15324b;   --color-sky-200: #1d4a6e;
+  --color-violet-50: #211a3d; --color-violet-100: #2b2250; --color-violet-200: #3b3070;
+
+  /* status text steps that are never button fills */
+  --color-red-800: #fecaca;     --color-red-900: #fee2e2;
+  --color-rose-800: #fecdd3;    --color-rose-900: #ffe4e6;
+  --color-amber-800: #fde68a;   --color-amber-900: #fef3c7;
+  --color-emerald-800: #a7f3d0; --color-emerald-900: #d1fae5;
+  --color-sky-800: #bae6fd;
+  --color-violet-800: #ddd6fe;
+}
+
+/* surfaces */
+html.dark .bg-white { background-color: var(--surface); }
+html.dark .bg-white\/90 { background-color: rgb(23 27 45 / 0.9); }
+html.dark .bg-white\/80 { background-color: rgb(23 27 45 / 0.8); }
+html.dark .bg-white\/50 { background-color: rgb(23 27 45 / 0.5); }
+html.dark .ring-white { --tw-ring-color: var(--surface); }
+html.dark .bg-\[\#F6F7FE\] { background-color: var(--surface-soft); }
+html.dark .bg-\[\#F6F7FE\]\/70 { background-color: rgb(29 34 55 / 0.7); }
+html.dark .bg-\[\#F8F9FE\] { background-color: #1a1f35; }
+html.dark .bg-\[\#F1F2FC\] { background-color: var(--surface-canvas); }
+html.dark .bg-\[\#EEF0FD\] { background-color: var(--surface-chip); }
+
+/* links and accents used as TEXT (the same steps are button fills, so these are explicit) */
+html.dark .text-indigo-500 { color: #8c99ff; }
+html.dark .text-indigo-600 { color: #98a5ff; }
+html.dark .text-indigo-700 { color: #a8b3ff; }
+html.dark .text-indigo-800, html.dark .text-indigo-900 { color: #c2caff; }
+html.dark .hover\:text-indigo-700:hover, html.dark .hover\:text-indigo-800:hover { color: #c2caff; }
+html.dark .text-red-500, html.dark .text-red-600 { color: #f87171; }   html.dark .text-red-700 { color: #fca5a5; }
+html.dark .text-rose-500, html.dark .text-rose-600 { color: #fb7185; } html.dark .text-rose-700 { color: #fda4af; }
+html.dark .text-amber-600 { color: #fbbf24; }   html.dark .text-amber-700 { color: #fcd34d; }
+html.dark .text-emerald-600 { color: #34d399; } html.dark .text-emerald-700 { color: #6ee7b7; }
+html.dark .text-sky-600 { color: #38bdf8; }     html.dark .text-sky-700 { color: #7dd3fc; }
+html.dark .text-violet-600 { color: #a78bfa; }  html.dark .text-violet-700 { color: #c4b5fd; }
+
+/* the few near-black fills (dark buttons, scrims) must not turn white when slate-900 becomes the text colour */
+html.dark .bg-slate-900 { background-color: #323a62; }
+html.dark .hover\:bg-slate-800:hover { background-color: #424b7c; }
+html.dark .border-slate-900 { border-color: #5a6499; }
+html.dark .hover\:border-slate-900:hover { border-color: #7f8bc4; }
+html.dark .bg-slate-900\/20 { background-color: rgb(0 0 0 / 0.5); }
+html.dark .bg-slate-900\/50 { background-color: rgb(0 0 0 / 0.65); }
+
+/* generic bits written in plain CSS above */
+html.dark .skeleton { background: #232944; }
+html.dark .skeleton::after { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent); }
+html.dark * { scrollbar-color: #3a4268 transparent; }
+html.dark *::-webkit-scrollbar-thumb { background: #3a4268; background-clip: content-box; }
+html.dark *::-webkit-scrollbar-thumb:hover { background: #55609a; background-clip: content-box; }
+html.dark input::placeholder, html.dark textarea::placeholder { color: #6f7898; }
+html.dark input:-webkit-autofill { -webkit-text-fill-color: var(--foreground); box-shadow: 0 0 0 100px var(--surface-soft) inset; }
+/* chart legends are drawn in the series colour by the chart library; on a dark card that blue is too dim to read */
+html.dark .recharts-legend-item-text { color: #c8cee2 !important; }

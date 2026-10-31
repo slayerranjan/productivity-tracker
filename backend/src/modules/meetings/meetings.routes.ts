@@ -42,6 +42,7 @@ const MESSAGES: Record<string, { status: number; message: string }> = {
   JOIN_TIME_REQUIRED: { status: 400, message: "To record someone as present, enter the time they joined." },
   NOTHING_TO_CHANGE: { status: 400, message: "That is already what is recorded." },
   TIME_IN_FUTURE: { status: 400, message: "A joining or leaving time can't be in the future." },
+  NOT_YOUR_REPORT: { status: 403, message: "A Team Huddle can only include people who report to you." },
   END_BEFORE_JOIN: { status: 400, message: "The leaving time must be after the joining time." },
 };
 
@@ -72,6 +73,7 @@ router.get("/", run((req) => meetings.listMine(uid(req), { scope: req.query.scop
 router.get("/oversight", run((req) => meetings.oversight(uid(req), { scope: req.query.scope })));
 router.get("/people", run((req) => meetings.people(uid(req))));
 // In-person participation. Static paths come before "/:id".
+router.get("/huddles/overview", run((req) => participation.managerOverview(uid(req), typeof req.query.date === "string" ? req.query.date : undefined)));
 router.get("/participation/history", run((req) => participation.history(uid(req), typeof req.query.userId === "string" && req.query.userId ? req.query.userId : undefined)));
 router.get("/:id", run((req) => meetings.getOne(uid(req), String(req.params.id))));
 router.post("/:id/join", run((req) => participation.join(uid(req), String(req.params.id))));

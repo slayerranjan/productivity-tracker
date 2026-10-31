@@ -128,6 +128,7 @@ const RULES: Rule[] = [
   { method: "POST", re: /^\/api\/attendance-corrections\/:id\/cancel$/, module: "Attendance", action: "CANCEL", summary: "Cancelled an attendance correction request", recordType: "AttendanceCorrection" },
   { method: "POST", re: /^\/api\/attendance-corrections\/:id\/decide$/, module: "Attendance", action: (b) => verdict(b, "decision", ["REJECT"], "REJECT", "APPROVE"), summary: (b) => (b?.decision === "REJECT" ? "Rejected an attendance correction" : "Approved an attendance correction"), recordType: "AttendanceCorrection" },
 
+  { method: "PATCH", re: /^\/api\/preferences$/, module: "Other", action: "UPDATE", summary: "Chose a display theme", recordType: "Preference", skip: true },
   { method: "POST", re: /^\/api\/notifications\/(read-all|:id\/read)$/, module: "Other", action: "OTHER", summary: "Marked notifications read", skip: true },
 
   { method: "POST", re: /^\/api\/documents\/employees\/:id\/employment-type$/, module: "Employees", action: "UPDATE", summary: "Set an employee's employment type", recordType: "User", targetIsId: true },

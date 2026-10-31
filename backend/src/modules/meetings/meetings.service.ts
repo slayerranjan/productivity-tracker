@@ -283,6 +283,7 @@ export async function create(userId: string, body: Fields) {
   const lateAfter = inPerson ? part.cleanLateAfter(body.lateAfterMinutes) : 5;
   const link = inPerson ? null : cleanUrl(body.meetingUrl);
   const attendees = await checkAttendees(body.attendeeIds, userId, v.platformId);
+  if (inPerson) await part.assertReportingEmployees(v, attendees.map((a) => a.id));
 
   const created = await prisma.$transaction(async (tx) => {
     const m = await tx.meeting.create({
@@ -321,7 +322,13 @@ export async function update(userId: string, id: string, body: Fields) {
   };
   const { startsAt, endsAt } = timesGiven ? parseWhen(merged, v.tz) : { startsAt: m.startsAt, endsAt: m.endsAt };
   if (timesGiven && endsAt.getTime() < Date.now()) throw new Error("PAST_MEETING");
-  const link = body.meetingUrl !== undefined ? cleanUrl(body.meetingUrl) : m.meetingUrl ? { url: m.meetingUrl, provider: m.provider ?? "Other link" } : null;
+  // An organizer who scheduled an ordinary meeting can turn it into an in-person one (tracked) as long as it has not ended.
+  // It cannot be switched off again, and an in-person meeting has no link.
+  const alreadyTracked = await part.isTracked(id);
+  const makeTracked = body.inPerson === true && !alreadyTracked;
+  if (makeTracked && !(await part.participationReady())) throw new Error("FEATURES_NOT_READY");
+  const lateAfter = makeTracked ? part.cleanLateAfter(body.lateAfterMinutes) : 5;
+  const link = makeTracked || alreadyTracked ? null : body.meetingUrl !== undefined ? cleanUrl(body.meetingUrl) : m.meetingUrl ? { url: m.meetingUrl, provider: m.provider ?? "Other link" } : null;
 
   const before = new Set(m.attendees.map((a) => a.userId));
   const next = body.attendeeIds !== undefined ? await checkAttendees(body.attendeeIds, userId, v.platformId) : null;
@@ -331,6 +338,7 @@ export async function update(userId: string, id: string, body: Fields) {
 
   await prisma.$transaction(async (tx) => {
     await tx.meeting.update({ where: { id }, data: { title: t, description: d, startsAt, endsAt, meetingUrl: link?.url ?? null, provider: link?.provider ?? null } });
+    if (makeTracked) await part.enableTracking(tx, { meetingId: id, platformId: v.platformId, createdById: userId, lateAfterMinutes: lateAfter });
     if (next) {
       if (removedIds.length) await tx.meetingAttendee.deleteMany({ where: { meetingId: id, userId: { in: removedIds } } });
       if (added.length) await tx.meetingAttendee.createMany({ data: added.map((a) => ({ meetingId: id, userId: a.id })) });
@@ -342,15 +350,16 @@ export async function update(userId: string, id: string, body: Fields) {
     { title: t, description: d, startsAt, endsAt, meetingUrl: link?.url ?? null, attendees: nextIds.size },
     ["title", "description", "startsAt", "endsAt", "meetingUrl", "attendees"]
   );
-  auditNote({ recordType: "Meeting", recordId: id, before: diff.before, after: diff.after, summary: `Changed "${t}": ${Object.keys(diff.after as Record<string, unknown>).join(", ") || "no changes"}` });
+  const afterWithTracking = { ...(diff.after as Record<string, unknown>), ...(makeTracked ? { inPerson: true, lateAfterMinutes: lateAfter } : {}) };
+  auditNote({ recordType: "Meeting", recordId: id, before: diff.before, after: afterWithTracking, summary: `Changed "${t}": ${Object.keys(afterWithTracking).join(", ") || "no changes"}` });
 
   // Tell the people it affects: new invitees, people who stay (if anything they care about changed), people removed.
-  const changedForAttendees = ["title", "startsAt", "endsAt", "meetingUrl", "description"].some((k) => k in (diff.after as Record<string, unknown>));
+  const changedForAttendees = makeTracked || ["title", "startsAt", "endsAt", "meetingUrl", "description"].some((k) => k in (diff.after as Record<string, unknown>));
   const meetingNow = { id, title: t, startsAt, endsAt, meetingUrl: link?.url ?? null };
   await tell(v, meetingNow, added, "invited", null);
   if (changedForAttendees) {
     const stay = await prisma.user.findMany({ where: { id: { in: [...nextIds].filter((x) => before.has(x)) } }, select: { id: true, firstName: true, email: true } });
-    await tell(v, meetingNow, stay, "updated", null);
+    await tell(v, meetingNow, stay, "updated", makeTracked ? "It is now an in-person meeting. When you are in the room, open Meetings and press \"I'm in the Meeting\"." : null);
   }
   if (removedIds.length) {
     const gone = await prisma.user.findMany({ where: { id: { in: removedIds } }, select: { id: true, firstName: true, email: true } });
