@@ -19,6 +19,7 @@
 import { prisma } from "../../lib/prisma.js";
 import { onlyPinnedCompany } from "../../lib/deployment.js";
 import { visibleUserIds } from "../tracker/tracker.service.js";
+import { huddleSecondsByDay } from "../meetings/participation.service.js";
 import { platformToday, parseIsoDay } from "../../lib/dates.js";
 
 export type GroupBy = "person" | "day" | "week" | "month" | "year";
@@ -269,6 +270,7 @@ export async function getTeamReport(
       role: String(u.role),
       designation: u.designation ?? null,
       teamName: teamOf.get(u.id) ?? null,
+      huddleSeconds: 0,
       daysNotTracked: 0,
       daysExpected: 0,
       daysPresent: 0,
@@ -299,6 +301,7 @@ export async function getTeamReport(
       row = {
         key,
         peopleSeen: new Set<string>(),
+        huddleSeconds: 0,
         daysNotTracked: 0,
         daysExpected: 0,
         daysPresent: 0,
@@ -393,6 +396,9 @@ export async function getTeamReport(
   // --- actuals from sessions ------------------------------------------------
 
   let hasOpenSessions = false;
+  // Team Huddle time that counted, per person and day. A LABEL inside productive time (never added on top): the productive totals
+  // below are unchanged. Same calculation as the employee and manager screens.
+  const huddleMap = await huddleSecondsByDay(userIds, from, lastDay);
 
   for (const s of sessions) {
     if (String(s.status) === "ACTIVE" && !s.logoutAt) hasOpenSessions = true;
@@ -403,6 +409,7 @@ export async function getTeamReport(
     if (person) {
       person.daysPresent += 1;
       person.productiveSeconds += s.productiveSeconds;
+      person.huddleSeconds += huddleMap.get(`${s.userId}|${toKey(s.date)}`) ?? 0;
       person.breakSeconds += s.breakSeconds;
       person.meetingSeconds += s.meetingSeconds;
       person.lateMinutes += s.lateByMinutes;
@@ -412,6 +419,7 @@ export async function getTeamReport(
 
     b.daysPresent += 1;
     if (!managerIds.has(s.userId)) {
+      b.huddleSeconds += huddleMap.get(`${s.userId}|${toKey(s.date)}`) ?? 0;
       b.productiveSeconds += s.productiveSeconds;
       b.breakSeconds += s.breakSeconds;
       b.meetingSeconds += s.meetingSeconds;
@@ -476,6 +484,7 @@ export async function getTeamReport(
       daysNotTracked: b.daysNotTracked,
       lateDays: b.lateDays,
       productiveSeconds: b.productiveSeconds,
+      huddleSeconds: b.huddleSeconds,
       breakSeconds: b.breakSeconds,
       meetingSeconds: b.meetingSeconds,
       targetSeconds: b.targetSeconds,
@@ -501,6 +510,7 @@ export async function getTeamReport(
       totals.managersExcluded += 1; // their attendance counts above; their productivity is left out below
     } else {
       totals.productiveSeconds += p.productiveSeconds;
+      totals.huddleSeconds += p.huddleSeconds;
       totals.breakSeconds += p.breakSeconds;
       totals.meetingSeconds += p.meetingSeconds;
       totals.targetSeconds += p.targetSeconds;
@@ -550,6 +560,7 @@ type PersonRow = {
   role: string;
   designation: string | null;
   teamName: string | null;
+  huddleSeconds: number;
   daysNotTracked: number;
   daysExpected: number;
   daysPresent: number;
@@ -575,6 +586,7 @@ type PersonRow = {
 type BucketRow = {
   key: string;
   peopleSeen: Set<string>;
+  huddleSeconds: number;
   daysNotTracked: number;
   daysExpected: number;
   daysPresent: number;
@@ -593,6 +605,7 @@ function blankTotals() {
   return {
     headcount: 0,
     managersExcluded: 0,
+    huddleSeconds: 0,
     daysNotTracked: 0,
     daysExpected: 0,
     daysPresent: 0,

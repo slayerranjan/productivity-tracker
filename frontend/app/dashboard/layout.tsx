@@ -191,6 +191,14 @@ const I = {
       <path d="M2.5 10h3.2l2-5.2 3.4 10.4 2.2-5.2h4.2" />
     </svg>
   ),
+  lock: (p: IconProps) => (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="3.8" y="8.6" width="12.4" height="8.6" rx="2" />
+      <path d="M6.6 8.6V6.4a3.4 3.4 0 0 1 6.8 0v2.2" />
+      <circle cx="10" cy="12.2" r="1.15" />
+      <path d="M10 13.3v1.7" />
+    </svg>
+  ),
   admin: (p: IconProps) => (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...p}>
       <circle cx="10" cy="10" r="2.4" />
@@ -245,7 +253,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { href: "/dashboard/payslips", label: "My Payslips", ready: true, icon: I.receipt },
       { href: "/dashboard/tickets", label: "Tickets", ready: true, icon: I.ticket },
       { href: "/dashboard/profile", label: "My Profile", ready: true, icon: I.user },
-      { href: "/change-password", label: "Change password", ready: true, icon: I.admin },
+      { href: "/change-password", label: "Change password", ready: true, icon: I.lock },
     ],
   },
   {

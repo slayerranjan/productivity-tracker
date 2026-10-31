@@ -580,3 +580,42 @@ export async function managerOverview(userId: string, dayStr?: string) {
     people,
   };
 }
+
+// --- Team Huddle seconds per person per day (for Reports and My History) -----------------------------------------------
+
+/**
+ * Team Huddle time that counted, per person and company day: "userId|YYYY-MM-DD" -> seconds. Same rules as the employee and manager
+ * screens (computeBreakdown): inside clock-in, outside breaks, never counted twice, open records capped at the expected end. It is a
+ * LABEL on productive time, never an addition, and a finished day can never show more huddle time than its stored productive total.
+ * Batched reads, joined in memory. Returns an empty map before the migration.
+ */
+export async function huddleSecondsByDay(userIds: string[], from: Date, to: Date): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (userIds.length === 0 || !(await participationReady())) return out;
+  const sessions = await prisma.workSession.findMany({
+    where: { userId: { in: userIds }, date: { gte: from, lte: to } },
+    select: { userId: true, date: true, status: true, loginAt: true, logoutAt: true, productiveSeconds: true, breaks: { select: { startedAt: true, endedAt: true } } },
+  });
+  if (sessions.length === 0) return out;
+  const parts = await prisma.meetingParticipation.findMany({
+    where: { userId: { in: userIds }, joinedAt: { gte: new Date(from.getTime() - 2 * 86_400_000), lte: new Date(to.getTime() + 3 * 86_400_000) } },
+    select: { id: true, meetingId: true, userId: true, joinedAt: true, leftAt: true },
+  });
+  if (parts.length === 0) return out;
+  const meetings = await prisma.meeting.findMany({ where: { id: { in: [...new Set(parts.map((p) => p.meetingId))] } }, select: { id: true, endsAt: true } });
+  const endOf = new Map(meetings.map((m) => [m.id, m.endsAt]));
+  const now = new Date();
+  for (const s of sessions) {
+    const lo = s.loginAt.getTime() - 6 * 3_600_000;
+    const hi = (s.logoutAt ?? now).getTime();
+    const mine = parts.filter((p) => p.userId === s.userId && p.joinedAt.getTime() >= lo && p.joinedAt.getTime() <= hi && endOf.has(p.meetingId));
+    if (mine.length === 0) continue;
+    const b = computeBreakdown({
+      loginAt: s.loginAt, logoutAt: s.logoutAt, breaks: s.breaks, liveMeetings: [],
+      huddles: mine.map((p) => ({ id: p.id, joinedAt: p.joinedAt, leftAt: p.leftAt, expectedEnd: endOf.get(p.meetingId) as Date })), now,
+    });
+    const secs = String(s.status) === "COMPLETED" ? Math.min(b.huddleSeconds, s.productiveSeconds) : b.huddleSeconds;
+    if (secs > 0) out.set(`${s.userId}|${s.date.toISOString().slice(0, 10)}`, secs);
+  }
+  return out;
+}
